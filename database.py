@@ -10,6 +10,7 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 
+from config import get_settings
 from models import (
     BirthdayRow,
     CalendarRow,
@@ -131,9 +132,18 @@ class DatabaseManager:
                 c.close()
 
     def _seed_defaults(self, c: sqlite3.Connection) -> None:
-        from config import DEFAULTS
-
-        for k, v in DEFAULTS.as_dict().items():
+        """Seed default settings from AppSettings (SSOT)."""
+        settings = get_settings()
+        defaults = {
+            "base_salary": str(settings.base_salary),
+            "tax_rate": str(settings.tax_rate),
+            "kef": str(settings.kef),
+            "standard_hours": str(settings.standard_hours),
+            "advance_cutoff_day": str(settings.advance_cutoff_day),
+            "is_advance_date_inclusive": str(settings.is_advance_date_inclusive).lower(),
+            "account_shortened": str(settings.account_shortened).lower(),
+        }
+        for k, v in defaults.items():
             c.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                 (k, v),

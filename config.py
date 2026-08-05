@@ -1,21 +1,17 @@
-"""config.py — Централизованная конфигурация приложения.
+"""config.py — Централизованная конфигурация приложения (SSOT).
 
-SSOT: Единый источник истины для всех настроек и констант.
+Единый источник истины для всех настроек и констант.
 Используем pydantic-settings для типизированных настроек.
 """
 
 from __future__ import annotations
 
-import os
-from datetime import date
 from pathlib import Path
 from typing import FrozenSet, Tuple
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
-    "DB_FILENAME",
-    "UPLOAD_DIR",
     "RU_BASE_HOLIDAYS",
     "MONTH_NAMES_GENITIVE",
     "MONTH_NAMES_NOMINATIVE",
@@ -26,9 +22,24 @@ __all__ = [
 ]
 
 
-# ── Пути (SSOT) ──────────────────────────────────────────────
-DB_FILENAME = os.environ.get("FINANCE_DB_PATH", "budget.db")
-UPLOAD_DIR = Path(os.environ.get("FINANCE_UPLOAD_DIR", ".upload"))
+# ── Базовые праздничные дни РФ (ст. 112 ТК РФ) ─────────────
+# Immutable frozenset для безопасности
+RU_BASE_HOLIDAYS: FrozenSet[Tuple[int, int]] = frozenset([
+    # Новогодние каникулы + Рождество
+    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
+    # День защитника Отечества
+    (2, 23),
+    # Международный женский день
+    (3, 8),
+    # Праздник Весны и Труда
+    (5, 1),
+    # День Победы
+    (5, 9),
+    # День России
+    (6, 12),
+    # День народного единства
+    (11, 4),
+])
 
 
 # ── Pydantic Settings для типизированных настроек приложения ─────
@@ -48,8 +59,8 @@ class AppSettings(BaseSettings):
     )
     
     # Database & Storage
-    db_path: str = DB_FILENAME
-    upload_dir: Path = UPLOAD_DIR
+    db_path: str = "budget.db"
+    upload_dir: Path = Path(".upload")
     
     # Salary calculation defaults
     base_salary: float = 100000.0
@@ -73,26 +84,6 @@ class AppSettings(BaseSettings):
 def get_settings() -> AppSettings:
     """Factory для получения настроек (SSOT)."""
     return AppSettings()
-
-
-# ── Базовые праздничные дни РФ (ст. 112 ТК РФ) ─────────────
-# Immutable frozenset для безопасности
-RU_BASE_HOLIDAYS: FrozenSet[Tuple[int, int]] = frozenset([
-    # Новогодние каникулы + Рождество
-    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
-    # День защитника Отечества
-    (2, 23),
-    # Международный женский день
-    (3, 8),
-    # Праздник Весны и Труда
-    (5, 1),
-    # День Победы
-    (5, 9),
-    # День России
-    (6, 12),
-    # День народного единства
-    (11, 4),
-])
 
 
 # ── Русские названия для парсинга PDF ───────────────────────
