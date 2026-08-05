@@ -1,6 +1,7 @@
 """models.py — Чистые immutable модели данных, Enum'ы, Protocol'ы, TypedDict'ы.
 
 Нулевая бизнес-логика — только структура и контракты.
+Используем pydantic для валидации DTO (Data Transfer Objects).
 """
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum, IntEnum
 from typing import Protocol, TypedDict, FrozenSet
+
+from pydantic import BaseModel, Field, field_validator
 
 __all__ = [
     # Enum'ы
@@ -34,6 +37,10 @@ __all__ = [
     "VacationRow",
     "CorrectionRow",
     "CalendarRow",
+    # Pydantic DTO для API
+    "ExpenseDTO",
+    "VacationDTO",
+    "BirthdayDTO",
 ]
 
 
@@ -189,3 +196,55 @@ class CalendarRow(TypedDict):
     is_working: int
     is_holiday: int
     is_shortened: int
+
+
+# ── Pydantic DTO для API валидации ────────────────────────────
+
+class ExpenseDTO(BaseModel):
+    """DTO для валидации расходов в API."""
+    name: str = Field(..., min_length=1, max_length=200, description="Название расхода")
+    amount: float = Field(..., gt=0, description="Сумма должна быть положительной")
+    half: int = Field(..., ge=1, le=2, description="Половина месяца (1 или 2)")
+    month: int = Field(..., ge=1, le=12, description="Месяц (1-12)")
+    year: int = Field(..., ge=2020, le=2100, description="Год (2020-2100)")
+    is_recurring: bool = Field(default=False, description="Повторяющийся расход")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return v.strip()
+
+
+class VacationDTO(BaseModel):
+    """DTO для валидации отпускных в API."""
+    total_amount: float = Field(..., gt=0, description="Сумма отпускных")
+    payout_date: str = Field(..., description="Дата выплаты в формате YYYY-MM-DD")
+
+    @field_validator('payout_date')
+    @classmethod
+    def validate_payout_date(cls, v: str) -> str:
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError("Неверный формат даты. Используйте YYYY-MM-DD")
+        return v
+
+
+class BirthdayDTO(BaseModel):
+    """DTO для валидации дней рождений в API."""
+    name: str = Field(..., min_length=1, max_length=200, description="Имя человека")
+    birth_date: str = Field(..., description="Дата рождения в формате DD.MM.YYYY")
+    gift_amount: float = Field(..., gt=0, le=1000000, description="Сумма на подарок")
+
+    @field_validator('birth_date')
+    @classmethod
+    def validate_birth_date(cls, v: str) -> str:
+        try:
+            parts = v.strip().split(".")
+            if len(parts) != 3:
+                raise ValueError
+            day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+            date(year, month, day)
+        except (ValueError, IndexError):
+            raise ValueError("Неверный формат даты. Используйте DD.MM.YYYY")
+        return v
