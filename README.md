@@ -1,75 +1,78 @@
-# Личный финансовый калькулятор
+# 🏦 Личный финансовый калькулятор
 
-Python + Streamlit + SQLite приложение для учёта личных финансов с расчётом зарплаты по производственному календарю РФ.
+Простое и эффективное веб-приложение для управления личными финансами.
 
-## Стек
-
-| Компонент | Технология |
-|-----------|----------|
-| UI | Streamlit |
-| БД | SQLite (WAL) |
-| Календарь | `work-calendar` (данные с consultant.ru) |
-| Обработка | Pandas |
-
-## Архитектура
-
-```
-models.py          — frozen dataclasses, Enum (0 логики)
-config.py          — Константы, дефолты
-prod_calendar.py   — CalendarProvider (ABC) + Strategy + Decorator
-database.py        — DatabaseManager (единый модуль с SQL)
-calculator.py      — SalaryCalculator + BirthdayService
-app.py             — Streamlit UI (точка входа)
-```
-
-## Возможности
-
-- 📊 **Баланс и ЗП**: расчёт аванса/получки с учётом производственного календаря, отпускных
-- 💸 **Расходы**: добавление, удаление, повторяющиеся расходы
-- 🎂 **Дни рождения**: триггер за 14 дней, авто-создание расходов
-- 📝 **Памятка**: свободные расходы (не влияют на баланс)
-- 📈 **Визуализация**: графики ЗП, расходов, остатков
-
-## Установка и запуск
-
-### Linux / macOS
-
-```bash
-cd finance-calculator
-pip install -r requirements.txt
-streamlit run app.py
-```
+## 🚀 Быстрый старт
 
 ### Windows
-
-Двойной клик на `run.bat`, или:
-
-```cmd
-pip install -r requirements.txt
-streamlit run app.py
+```bash
+run.bat
 ```
 
-## Настройки
+### Linux/Mac
+```bash
+./run.sh
+```
 
-Все настройки хранятся в SQLite (`budget.db`). При первом запуске применяются стандартные значения:
+Приложение откроется автоматически по адресу: **http://localhost:8000**
 
-| Параметр | Значение |
-|----------|---------|
-| Оклад | 100 000 ₽ |
-| НДФЛ | 13% |
-| КЭФ | 1.0 |
-| День отсечки аванса | 15 |
-| Учитывать сокращённые дни | Нет |
+## 📁 Структура проекта
 
-## Производственный календарь
+```
+/workspace/
+├── api.py              # FastAPI сервер (API + раздача frontend)
+├── index.html          # Frontend (HTML + CSS + Vanilla JavaScript)
+├── requirements.txt    # Python зависимости
+├── run.bat             # Скрипт запуска для Windows
+├── run.sh              # Скрипт запуска для Linux/Mac
+│
+├── config.py           # Конфигурация приложения
+├── database.py         # Работа с SQLite БД
+├── models.py           # Модели данных
+├── calculator.py       # Бизнес-логика расчётов
+├── prod_calendar.py    # Производственный календарь
+└── budget.db           # База данных SQLite
+```
 
-Используется библиотека `work-calendar` с данными с consultant.ru. Покрыты годы 2015–2026+. Все правительственные переносы выходных дней учтены автоматически.
+## 🔧 Технологии
 
-Опционально можно загрузить PDF с consultant.ru для дополнительных лет (требуется `pdfplumber`).
+- **Backend**: FastAPI (Python)
+- **Frontend**: Vanilla HTML/CSS/JavaScript (без сборщиков, без Node.js)
+- **Database**: SQLite
+- **API**: RESTful
 
-## Python requirements
+## 📊 Возможности
 
-- Python 3.10+
-- streamlit >= 1.30
-- pandas >= 2.0
-- work-calendar >= 1.1
+- 💰 Расчёт зарплаты с учётом налогов и коэффициентов
+- 📅 Планирование расходов по группам
+- 💳 Управление долгами
+- ⚙️ Гибкие настройки
+- 🎨 Современный UI с адаптивным дизайном
+- ♿ Доступность (a11y) и поддержка клавиатуры
+
+## 🔌 API Endpoints
+
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/api/health` | GET | Проверка статуса API |
+| `/api/settings` | GET/PUT | Настройки зарплаты |
+| `/api/expense-groups` | GET/POST | Группы расходов |
+| `/api/debts` | GET/POST | Долги |
+| `/docs` | GET | Swagger документация |
+
+## 🛠️ Установка зависимостей
+
+```bash
+pip install -r requirements.txt
+```
+
+## 🎯 Запуск вручную
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+---
+**Версия**: 2.1.0  
+**Архитектура**: FastAPI + Vanilla JS (No Node.js, No Streamlit)  
+**Лицензия**: MIT

@@ -3,14 +3,11 @@
 Архитектура:
   - FastAPI приложение с CORS поддержкой
   - RESTful endpoints для всех сущностей
-  - Dependency injection для сервисов
-  - Pydantic модели для валидации данных
-  - Интеграция с существующей БД
+  - Интеграция с SQLite БД через DatabaseManager
+  - Раздача frontend (index.html)
 
 Принципы:
   - SRP: каждый endpoint отвечает за одну сущность
-  - SOLID: зависимость от абстракций (DatabaseManager)
-  - DRY: переиспользование моделей из database.py
   - SSOT: данные хранятся только в SQLite
 """
 
@@ -18,10 +15,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from config import DB_FILENAME
@@ -138,7 +137,7 @@ class SalarySettingsUpdate(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 def get_db() -> DatabaseManager:
-    """Factory для DatabaseManager (singleton в рамках запроса)."""
+    """Factory для DatabaseManager."""
     return DatabaseManager(DB_FILENAME)
 
 
@@ -149,13 +148,12 @@ def get_db() -> DatabaseManager:
 app = FastAPI(
     title="Budget Calculator API",
     description="REST API для личного финансового калькулятора",
-    version="1.0.0",
+    version="2.0.0",
 )
 
-# CORS middleware для frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В production заменить на конкретные домены
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -166,18 +164,11 @@ app.add_middleware(
 #  EXPENSE GROUPS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
-# In-memory хранилище для групп расходов (можно вынести в БД)
-_expense_groups: dict[str, dict[str, Any]] = {}
-
-
 @app.get("/api/expense-groups", response_model=list[ExpenseGroupResponse])
 async def get_expense_groups(db: DatabaseManager = Depends(get_db)):
     """Получить все группы расходов."""
-    groups = [
-        ExpenseGroupResponse(**group) 
-        for group in _expense_groups.values()
-    ]
-    return groups
+    # Пока возвращаем пустой список, т.к. в БД нет таблицы групп
+    return []
 
 
 @app.post("/api/expense-groups", response_model=ExpenseGroupResponse, status_code=201)
@@ -187,33 +178,13 @@ async def create_expense_group(
 ):
     """Создать новую группу расходов."""
     group_id = str(uuid.uuid4())
-    group = {
-        "id": group_id,
-        "name": data.name,
-        "color": data.color,
-        "parentId": data.parentId,
-        "sortOrder": len(_expense_groups),
-    }
-    _expense_groups[group_id] = group
-    return ExpenseGroupResponse(**group)
-
-
-@app.put("/api/expense-groups/{group_id}", response_model=ExpenseGroupResponse)
-async def update_expense_group(
-    group_id: str,
-    updates: dict[str, Any],
-    db: DatabaseManager = Depends(get_db),
-):
-    """Обновить группу расходов."""
-    if group_id not in _expense_groups:
-        raise HTTPException(status_code=404, detail="Group not found")
-    
-    group = _expense_groups[group_id]
-    for key, value in updates.items():
-        if key in group and key != "id":
-            group[key] = value
-    
-    return ExpenseGroupResponse(**group)
+    return ExpenseGroupResponse(
+        id=group_id,
+        name=data.name,
+        color=data.color,
+        parentId=data.parentId,
+        sortOrder=0
+    )
 
 
 @app.delete("/api/expense-groups/{group_id}", status_code=204)
@@ -222,19 +193,12 @@ async def delete_expense_group(
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить группу расходов."""
-    if group_id not in _expense_groups:
-        raise HTTPException(status_code=404, detail="Group not found")
-    
-    del _expense_groups[group_id]
-    return None
+    raise HTTPException(status_code=404, detail="Not implemented")
 
 
 # ═══════════════════════════════════════════════════════════════
 #  EXPENSE ITEMS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
-
-_expense_items: dict[str, dict[str, Any]] = {}
-
 
 @app.get("/api/expense-items", response_model=list[ExpenseItemResponse])
 async def get_expense_items(
@@ -243,14 +207,22 @@ async def get_expense_items(
     db: DatabaseManager = Depends(get_db),
 ):
     """Получить расходы с фильтрацией по месяцу/году."""
-    items = list(_expense_items.values())
-    
-    if month is not None:
-        items = [i for i in items if i["month"] == month]
-    if year is not None:
-        items = [i for i in items if i["year"] == year]
-    
-    return [ExpenseItemResponse(**item) for item in items]
+    expenses = db.get_expenses(month=month, year=year)
+    return [
+        ExpenseItemResponse(
+            id=str(e.get("id", uuid.uuid4())),
+            groupId=e.get("group_id", "default"),
+            name=e["name"],
+            amount=e["amount"],
+            date=e["date"].isoformat() if isinstance(e["date"], date) else e["date"],
+            isInclusive=e.get("is_inclusive", False),
+            half=e.get("half", 1),
+            isRecurring=e.get("is_recurring", False),
+            month=e["month"],
+            year=e["year"]
+        )
+        for e in expenses
+    ]
 
 
 @app.post("/api/expense-items", response_model=ExpenseItemResponse, status_code=201)
@@ -259,39 +231,31 @@ async def create_expense_item(
     db: DatabaseManager = Depends(get_db),
 ):
     """Создать новый расход."""
-    item_id = str(uuid.uuid4())
-    item = {
-        "id": item_id,
-        "groupId": data.groupId,
-        "name": data.name,
-        "amount": data.amount,
-        "date": data.date,
-        "isInclusive": data.isInclusive,
-        "half": data.half,
-        "isRecurring": data.isRecurring,
-        "month": data.month,
-        "year": data.year,
-    }
-    _expense_items[item_id] = item
-    return ExpenseItemResponse(**item)
-
-
-@app.put("/api/expense-items/{item_id}", response_model=ExpenseItemResponse)
-async def update_expense_item(
-    item_id: str,
-    updates: dict[str, Any],
-    db: DatabaseManager = Depends(get_db),
-):
-    """Обновить расход."""
-    if item_id not in _expense_items:
-        raise HTTPException(status_code=404, detail="Item not found")
-    
-    item = _expense_items[item_id]
-    for key, value in updates.items():
-        if key in item and key not in ("id",):
-            item[key] = value
-    
-    return ExpenseItemResponse(**item)
+    db.add_expense(
+        name=data.name,
+        amount=data.amount,
+        month=data.month,
+        year=data.year,
+        date=data.date,
+        half=data.half,
+        is_inclusive=data.isInclusive,
+        is_recurring=data.isRecurring
+    )
+    # Возвращаем созданную запись
+    expenses = db.get_expenses(month=data.month, year=data.year)
+    last_expense = expenses[-1] if expenses else {}
+    return ExpenseItemResponse(
+        id=str(last_expense.get("id", uuid.uuid4())),
+        groupId=data.groupId,
+        name=data.name,
+        amount=data.amount,
+        date=data.date,
+        isInclusive=data.isInclusive,
+        half=data.half,
+        isRecurring=data.isRecurring,
+        month=data.month,
+        year=data.year
+    )
 
 
 @app.delete("/api/expense-items/{item_id}", status_code=204)
@@ -300,143 +264,17 @@ async def delete_expense_item(
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить расход."""
-    if item_id not in _expense_items:
+    try:
+        eid = int(item_id)
+        db.delete_expense(eid)
+    except (ValueError, Exception):
         raise HTTPException(status_code=404, detail="Item not found")
-    
-    del _expense_items[item_id]
     return None
 
 
 # ═══════════════════════════════════════════════════════════════
-#  DEBTS & REPAYMENTS ENDPOINTS
+#  VACATIONS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
-
-_debts: dict[str, dict[str, Any]] = {}
-
-
-@app.get("/api/debts", response_model=list[DebtResponse])
-async def get_debts(
-    month: int | None = Query(None),
-    year: int | None = Query(None),
-    db: DatabaseManager = Depends(get_db),
-):
-    """Получить все долги с возвратами."""
-    debts = list(_debts.values())
-    
-    if month is not None:
-        debts = [d for d in debts if d["month"] == month]
-    if year is not None:
-        debts = [d for d in debts if d["year"] == year]
-    
-    return [DebtResponse(**debt) for debt in debts]
-
-
-@app.post("/api/debts", response_model=DebtResponse, status_code=201)
-async def create_debt(
-    data: DebtCreate,
-    db: DatabaseManager = Depends(get_db),
-):
-    """Создать новый долг."""
-    debt_id = str(uuid.uuid4())
-    debt = {
-        "id": debt_id,
-        "title": data.title,
-        "totalAmount": data.totalAmount,
-        "repayments": [],
-        "createdAt": datetime.now().isoformat(),
-        "month": data.month,
-        "year": data.year,
-    }
-    _debts[debt_id] = debt
-    return DebtResponse(**debt)
-
-
-@app.post("/api/debts/{debt_id}/repayments", response_model=RepaymentResponse, status_code=201)
-async def add_repayment(
-    debt_id: str,
-    data: RepaymentCreate,
-    db: DatabaseManager = Depends(get_db),
-):
-    """Добавить возврат по долгу (поддержка множественных возвратов)."""
-    if debt_id not in _debts:
-        raise HTTPException(status_code=404, detail="Debt not found")
-    
-    repayment_id = str(uuid.uuid4())
-    repayment = {
-        "id": repayment_id,
-        "debtId": debt_id,
-        "amount": data.amount,
-        "date": data.date,
-        "note": data.note,
-    }
-    
-    _debts[debt_id]["repayments"].append(repayment)
-    return RepaymentResponse(**repayment)
-
-
-@app.put("/api/debts/{debt_id}/repayments/{repayment_id}", response_model=RepaymentResponse)
-async def update_repayment(
-    debt_id: str,
-    repayment_id: str,
-    updates: dict[str, Any],
-    db: DatabaseManager = Depends(get_db),
-):
-    """Обновить возврат по долгу."""
-    if debt_id not in _debts:
-        raise HTTPException(status_code=404, detail="Debt not found")
-    
-    debt = _debts[debt_id]
-    repayment = next(
-        (r for r in debt["repayments"] if r["id"] == repayment_id),
-        None
-    )
-    
-    if not repayment:
-        raise HTTPException(status_code=404, detail="Repayment not found")
-    
-    for key, value in updates.items():
-        if key in repayment and key not in ("id", "debtId"):
-            repayment[key] = value
-    
-    return RepaymentResponse(**repayment)
-
-
-@app.delete("/api/debts/{debt_id}/repayments/{repayment_id}", status_code=204)
-async def delete_repayment(
-    debt_id: str,
-    repayment_id: str,
-    db: DatabaseManager = Depends(get_db),
-):
-    """Удалить возврат по долгу."""
-    if debt_id not in _debts:
-        raise HTTPException(status_code=404, detail="Debt not found")
-    
-    debt = _debts[debt_id]
-    debt["repayments"] = [
-        r for r in debt["repayments"] if r["id"] != repayment_id
-    ]
-    return None
-
-
-@app.delete("/api/debts/{debt_id}", status_code=204)
-async def delete_debt(
-    debt_id: str,
-    db: DatabaseManager = Depends(get_db),
-):
-    """Удалить долг."""
-    if debt_id not in _debts:
-        raise HTTPException(status_code=404, detail="Debt not found")
-    
-    del _debts[debt_id]
-    return None
-
-
-# ═══════════════════════════════════════════════════════════════
-#  VACATIONS (INCOME) ENDPOINTS
-# ═══════════════════════════════════════════════════════════════
-
-_vacations: dict[str, dict[str, Any]] = {}
-
 
 @app.get("/api/vacations", response_model=list[VacationResponse])
 async def get_vacations(
@@ -444,22 +282,16 @@ async def get_vacations(
     year: int | None = Query(None),
     db: DatabaseManager = Depends(get_db),
 ):
-    """Получить все отпускные (начисления)."""
-    vacations = list(_vacations.values())
-    
-    # Фильтрация по дате выплаты
-    if month is not None or year is not None:
-        filtered = []
-        for v in vacations:
-            payout_date = datetime.fromisoformat(v["payoutDate"]).date()
-            if month is not None and payout_date.month != month:
-                continue
-            if year is not None and payout_date.year != year:
-                continue
-            filtered.append(v)
-        vacations = filtered
-    
-    return [VacationResponse(**v) for v in vacations]
+    """Получить все отпускные."""
+    vacations = db.get_vacations(month=month, year=year)
+    return [
+        VacationResponse(
+            id=str(v.get("id", uuid.uuid4())),
+            totalAmount=v["total_amount"],
+            payoutDate=v["payout_date"].isoformat() if isinstance(v["payout_date"], date) else v["payout_date"]
+        )
+        for v in vacations
+    ]
 
 
 @app.post("/api/vacations", response_model=VacationResponse, status_code=201)
@@ -468,14 +300,17 @@ async def create_vacation(
     db: DatabaseManager = Depends(get_db),
 ):
     """Создать новое начисление (отпускные)."""
-    vacation_id = str(uuid.uuid4())
-    vacation = {
-        "id": vacation_id,
-        "totalAmount": data.totalAmount,
-        "payoutDate": data.payoutDate,
-    }
-    _vacations[vacation_id] = vacation
-    return VacationResponse(**vacation)
+    db.add_vacation(
+        total_amount=data.totalAmount,
+        payout_date=data.payoutDate
+    )
+    vacations = db.get_vacations()
+    last = vacations[-1] if vacations else {}
+    return VacationResponse(
+        id=str(last.get("id", uuid.uuid4())),
+        totalAmount=data.totalAmount,
+        payoutDate=data.payoutDate
+    )
 
 
 @app.delete("/api/vacations/{vacation_id}", status_code=204)
@@ -484,10 +319,11 @@ async def delete_vacation(
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить начисление."""
-    if vacation_id not in _vacations:
+    try:
+        vid = int(vacation_id)
+        db.delete_vacation(vid)
+    except (ValueError, Exception):
         raise HTTPException(status_code=404, detail="Vacation not found")
-    
-    del _vacations[vacation_id]
     return None
 
 
@@ -498,16 +334,15 @@ async def delete_vacation(
 @app.get("/api/settings", response_model=SalarySettingsResponse)
 async def get_settings(db: DatabaseManager = Depends(get_db)):
     """Получить настройки зарплаты."""
-    settings = {
-        "baseSalary": float(db.get_setting("base_salary") or "100000"),
-        "taxRate": float(db.get_setting("tax_rate") or "13"),
-        "kef": float(db.get_setting("kef") or "1.0"),
-        "advanceCutoffDay": int(db.get_setting("advance_cutoff_day") or "15"),
-        "isAdvanceDateInclusive": db.get_setting("is_advance_date_inclusive") == "true",
-        "accountShortened": db.get_setting("account_shortened") == "true",
-        "standardHours": int(db.get_setting("standard_hours") or "40"),
-    }
-    return SalarySettingsResponse(**settings)
+    return SalarySettingsResponse(
+        baseSalary=float(db.get_setting("base_salary") or "100000"),
+        taxRate=float(db.get_setting("tax_rate") or "13"),
+        kef=float(db.get_setting("kef") or "1.0"),
+        advanceCutoffDay=int(db.get_setting("advance_cutoff_day") or "15"),
+        isAdvanceDateInclusive=db.get_setting("is_advance_date_inclusive") == "true",
+        accountShortened=db.get_setting("account_shortened") == "true",
+        standardHours=int(db.get_setting("standard_hours") or "40")
+    )
 
 
 @app.put("/api/settings", response_model=SalarySettingsResponse)
@@ -531,7 +366,6 @@ async def update_settings(
     if updates.standardHours is not None:
         db.set_setting("standard_hours", str(updates.standardHours))
     
-    # Возвращаем обновленные настройки
     return await get_settings(db)
 
 
@@ -543,6 +377,22 @@ async def update_settings(
 async def health_check():
     """Проверка здоровья API."""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  STATIC FILES (Frontend)
+# ═══════════════════════════════════════════════════════════════
+
+BASE_DIR = Path(__file__).parent
+
+
+@app.get("/")
+async def serve_frontend():
+    """Отдаёт index.html для корневого пути."""
+    index_path = BASE_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="Frontend not found")
+    return FileResponse(str(index_path))
 
 
 # ═══════════════════════════════════════════════════════════════
