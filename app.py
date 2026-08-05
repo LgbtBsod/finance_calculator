@@ -73,11 +73,11 @@ def init_calendar_service(_db: DatabaseManager) -> CalendarService:
 @st.cache_resource
 def init_salary_calc(
     _db: DatabaseManager,
-    cal_svc: CalendarService,
+    _cal_svc: CalendarService,
 ) -> SalaryCalculator:
     return SalaryCalculator(
         get_setting=_db.get_setting,
-        calendar=cal_svc,
+        calendar=_cal_svc,
         vacations=_db,
     )
 
