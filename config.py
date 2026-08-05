@@ -9,6 +9,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
+from typing import FrozenSet, Tuple
 
 __all__ = [
     "DB_FILENAME",
@@ -24,13 +25,11 @@ __all__ = [
 
 
 # ── Пути ─────────────────────────────────────────────────────
-
 DB_FILENAME = "budget.db"
 UPLOAD_DIR = Path(os.environ.get("FINANCE_UPLOAD_DIR", ".upload"))
 
 
 # ── Дефолтные настройки (fallback при пустой БД) ─────────────
-
 @dataclass(frozen=True, slots=True)
 class Defaults:
     base_salary: str = "100000"
@@ -38,7 +37,7 @@ class Defaults:
     advance_cutoff_day: str = "15"
     current_year: str = field(default_factory=lambda: str(date.today().year))
     kef: str = "1.0"
-    account_shortened: str = "0"        # 0 = как обычные, 1 = учитывать
+    account_shortened: str = "0"
     standard_hours: str = "40"
 
     def as_dict(self) -> dict[str, str]:
@@ -49,9 +48,8 @@ DEFAULTS = Defaults()
 
 
 # ── Базовые праздничные дни РФ (ст. 112 ТК РФ) ─────────────
-
-# Только то, что задано законом — не yearly-переносы.
-RU_BASE_HOLIDAYS: list[tuple[int, int]] = [
+# Immutable frozenset для безопасности
+RU_BASE_HOLIDAYS: FrozenSet[Tuple[int, int]] = frozenset([
     # Новогодние каникулы + Рождество
     (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
     # День защитника Отечества
@@ -66,11 +64,11 @@ RU_BASE_HOLIDAYS: list[tuple[int, int]] = [
     (6, 12),
     # День народного единства
     (11, 4),
-]
+])
 
 
 # ── Русские названия для парсинга PDF ───────────────────────
-
+# Immutable mappings
 MONTH_NAMES_GENITIVE: dict[str, int] = {
     "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
     "мая": 5, "июня": 6, "июля": 7, "августа": 8,
@@ -83,11 +81,11 @@ MONTH_NAMES_NOMINATIVE: dict[str, int] = {
     "сентябрь": 9, "октябрь": 10, "ноябрь": 11, "декабрь": 12,
 }
 
-MONTH_DISPLAY: list[str] = [
+MONTH_DISPLAY: tuple[str, ...] = (
     "", "Январь", "Февраль", "Март", "Апрель",
     "Май", "Июнь", "Июль", "Август",
     "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
-]
+)
 
 WEEKDAY_NAMES: dict[str, int] = {
     "понедельник": 0, "вторник": 1, "среда": 2,

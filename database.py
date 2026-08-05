@@ -31,15 +31,20 @@ class DatabaseManager:
 
     def __init__(self, db_path: str = "budget.db") -> None:
         self.db_path = db_path
+        self._conn_cache: sqlite3.Connection | None = None
         self._init_db()
 
     # ── соединение ────────────────────────────────────────────
 
     def _conn(self) -> sqlite3.Connection:
+        if self._conn_cache is not None:
+            return self._conn_cache
         c = sqlite3.connect(self.db_path)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA foreign_keys=ON")
+        if self.db_path == ":memory:":
+            self._conn_cache = c
         return c
 
     @contextmanager
@@ -49,10 +54,14 @@ class DatabaseManager:
             yield c
             c.commit()
         except Exception:
-            c.rollback()
+            try:
+                c.rollback()
+            except sqlite3.ProgrammingError:
+                pass  # DB already closed (in-memory case)
             raise
         finally:
-            c.close()
+            if self.db_path != ":memory:":
+                c.close()
 
     # ── миграции ─────────────────────────────────────────────
 
@@ -118,7 +127,8 @@ class DatabaseManager:
             c.commit()
             self._seed_defaults(c)
         finally:
-            c.close()
+            if self.db_path != ":memory:":
+                c.close()
 
     def _seed_defaults(self, c: sqlite3.Connection) -> None:
         from config import DEFAULTS

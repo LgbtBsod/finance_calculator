@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum, IntEnum
-from typing import Protocol, TypedDict
+from typing import Protocol, TypedDict, FrozenSet
 
 __all__ = [
     # Enum'ы
@@ -39,33 +39,28 @@ __all__ = [
 
 # ── Перечисления ──────────────────────────────────────────────
 
-
 class DayKind(StrEnum):
     """Тип дня в производственном календаре."""
-
     WORKING = "working"
     WEEKEND = "weekend"
     HOLIDAY = "holiday"
-    SHORTENED = "shortened"  # рабочий, но на 1 ч короче
+    SHORTENED = "shortened"
 
 
 class ExpenseHalf(IntEnum):
     """Половина месяца для расхода."""
-
     FIRST = 1
     SECOND = 2
 
 
 class CorrectionKind(StrEnum):
     """Тип поправки к календарю (из PDF или вручную)."""
-
-    EXTRA_HOLIDAY = "extra_holiday"  # стало выходным (перенос)
-    EXTRA_WORKING = "extra_working"  # стало рабочим (редко)
-    SHORTENED = "shortened"  # предпраздничный
+    EXTRA_HOLIDAY = "extra_holiday"
+    EXTRA_WORKING = "extra_working"
+    SHORTENED = "shortened"
 
 
 # ── Frozen dataclass'ы (immutable, slotted) ─────────────────
-
 
 @dataclass(frozen=True, slots=True)
 class DayInfo:
@@ -97,7 +92,7 @@ class BalanceResult:
 @dataclass(frozen=True, slots=True)
 class BirthdayAlert:
     name: str
-    birth_date: str  # "DD.MM"
+    birth_date: str
     gift_amount: float
     trigger_date: date
     days_until: int
@@ -106,26 +101,23 @@ class BirthdayAlert:
 @dataclass(frozen=True, slots=True)
 class PDFParseResult:
     year: int
-    extra_holidays: frozenset[date]
-    shortened_days: frozenset[date]
-    monthly_working_days: dict[int, int]  # month -> count
-    monthly_hours_40: dict[int, float]  # month -> hours
-    transfers_raw: list[str]  # исходные строки переносов
+    extra_holidays: FrozenSet[date]
+    shortened_days: FrozenSet[date]
+    monthly_working_days: dict[int, int]
+    monthly_hours_40: dict[int, float]
+    transfers_raw: tuple[str, ...]
 
 
 # ── Protocol'ы (контракты для dependency injection) ────────────
 
-
 class SettingProvider(Protocol):
     """Протокол поставщика настроек. Реализуется DatabaseManager."""
-
     def get_setting(self, key: str) -> str: ...
     def set_setting(self, key: str, value: str) -> None: ...
 
 
 class CalendarReader(Protocol):
     """Протокол поставщика рабочих дней. Реализуется CalendarService."""
-
     def get_working_days(self, year: int, month: int) -> tuple[float, float, float]:
         """(total, half_1, half_2)."""
         ...
@@ -133,7 +125,6 @@ class CalendarReader(Protocol):
 
 class ExpenseReader(Protocol):
     """Протокол читателя расходов. Реализуется DatabaseManager."""
-
     def get_expenses(
         self,
         month: int | None = ...,
@@ -143,7 +134,6 @@ class ExpenseReader(Protocol):
 
 class VacationReader(Protocol):
     """Протокол читателя отпускных. Реализуется DatabaseManager."""
-
     def get_vacations(
         self,
         month: int | None = ...,
@@ -153,12 +143,10 @@ class VacationReader(Protocol):
 
 class BirthdayReader(Protocol):
     """Протокол читателя дней рождений. Реализуется DatabaseManager."""
-
     def get_birthdays(self) -> list[BirthdayRow]: ...
 
 
 # ── TypedDict'ы (структура строк из БД) ─────────────────────
-
 
 class ExpenseRow(TypedDict):
     id: int
