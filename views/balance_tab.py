@@ -138,34 +138,71 @@ def _vacations_section(
 def _accrual_cards(s: SalaryBreakdown) -> None:
     st.subheader("💳 Начисления")
     c1, c2, c3 = st.columns(3)
+    
+    # Карточки с улучшенным оформлением
     with c1:
-        st.metric(
-            "Итого начислено",
-            fmt(s.total_accrued),
-            help="Чистая ЗП + Отпускные",
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#e3f2fd 0%,#bbdefb 100%);'
+            f'padding:20px;border-radius:12px;text-align:center;'
+            f'box-shadow:0 2px 8px rgba(0,0,0,0.1);">'
+            f'<div style="color:#1976d2;font-size:0.9em;margin-bottom:8px;">'
+            f'Итого начислено</div>'
+            f'<div style="color:#0d47a1;font-size:1.8em;font-weight:bold;">'
+            f'{fmt(s.total_accrued)}</div>'
+            f'<div style="color:#666;font-size:0.8em;margin-top:8px;">'
+            f'Чистая ЗП + Отпускные</div></div>',
+            unsafe_allow_html=True,
         )
     with c2:
-        st.metric(
-            "К выплате (1-я)",
-            fmt(s.to_pay_half_1),
-            help="Аванс + отпускные 1-й половины",
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#e8f5e9 0%,#c8e6c9 100%);'
+            f'padding:20px;border-radius:12px;text-align:center;'
+            f'box-shadow:0 2px 8px rgba(0,0,0,0.1);">'
+            f'<div style="color:#388e3c;font-size:0.9em;margin-bottom:8px;">'
+            f'К выплате (1-я)</div>'
+            f'<div style="color:#1b5e20;font-size:1.8em;font-weight:bold;">'
+            f'{fmt(s.to_pay_half_1)}</div>'
+            f'<div style="color:#666;font-size:0.8em;margin-top:8px;">'
+            f'Аванс + отпускные 1-й</div></div>',
+            unsafe_allow_html=True,
         )
     with c3:
-        st.metric(
-            "К выплате (2-я)",
-            fmt(s.to_pay_half_2),
-            help="Получка + отпускные 2-й половины",
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#fff3e0 0%,#ffe0b2 100%);'
+            f'padding:20px;border-radius:12px;text-align:center;'
+            f'box-shadow:0 2px 8px rgba(0,0,0,0.1);">'
+            f'<div style="color:#f57c00;font-size:0.9em;margin-bottom:8px;">'
+            f'К выплате (2-я)</div>'
+            f'<div style="color:#e65100;font-size:1.8em;font-weight:bold;">'
+            f'{fmt(s.to_pay_half_2)}</div>'
+            f'<div style="color:#666;font-size:0.8em;margin-top:8px;">'
+            f'Получка + отпускные 2-й</div></div>',
+            unsafe_allow_html=True,
         )
 
+    # Детализация по половинам
+    st.markdown("---")
     d1, d2 = st.columns(2)
     with d1:
-        st.markdown("**1-я половина:**")
-        st.write(f"• Аванс: {fmt(s.advance)}")
-        st.write(f"• Отпускные: {fmt(s.vacation_half_1)}")
+        st.markdown(
+            f'<div style="background:#f8f9fa;padding:16px;border-radius:8px;'
+            f'border-left:4px solid #2196F3;">'
+            f'<strong style="color:#1976D2;font-size:1.1em;">1-я половина</strong><br>'
+            f'<span style="color:#424242;">• Аванс:</span> <strong>{fmt(s.advance)}</strong><br>'
+            f'<span style="color:#424242;">• Отпускные:</span> <strong>{fmt(s.vacation_half_1)}</strong>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     with d2:
-        st.markdown("**2-я половина:**")
-        st.write(f"• Получка: {fmt(s.payout)}")
-        st.write(f"• Отпускные: {fmt(s.vacation_half_2)}")
+        st.markdown(
+            f'<div style="background:#f8f9fa;padding:16px;border-radius:8px;'
+            f'border-left:4px solid #FF9800;">'
+            f'<strong style="color:#F57C00;font-size:1.1em;">2-я половина</strong><br>'
+            f'<span style="color:#424242;">• Получка:</span> <strong>{fmt(s.payout)}</strong><br>'
+            f'<span style="color:#424242;">• Отпускные:</span> <strong>{fmt(s.vacation_half_2)}</strong>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ── Расходы по половинам ─────────────────────────────────────
@@ -196,19 +233,41 @@ def _expenses_summary(cur_exps: list, bal: BalanceResult) -> None:
 def _balance_metrics(bal: BalanceResult) -> None:
     st.subheader("📊 Итоговый остаток")
     b1, b2 = st.columns(2)
+    
+    # Определяем цвета и иконки в зависимости от баланса
+    is_positive_h1 = bal.balance_h1 >= 0
+    is_positive_h2 = bal.balance_h2 >= 0
+    
     with b1:
-        icon = "🔴" if bal.balance_h1 < 0 else "🟢"
-        st.metric(
-            f"Остаток 1-я {icon}",
-            fmt(bal.balance_h1),
-            delta_color="inverse" if bal.balance_h1 < 0 else "normal",
+        bg_color = "#e8f5e9" if is_positive_h1 else "#ffebee"
+        text_color = "#2e7d32" if is_positive_h1 else "#c62828"
+        icon = "✅" if is_positive_h1 else "⚠️"
+        label = "Положительный остаток (1-я)" if is_positive_h1 else "Дефицит (1-я)"
+        
+        st.markdown(
+            f'<div style="background:{bg_color};padding:24px;border-radius:12px;'
+            f'text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);">'
+            f'<div style="font-size:2em;margin-bottom:8px;">{icon}</div>'
+            f'<div style="color:#666;font-size:0.9em;margin-bottom:8px;">{label}</div>'
+            f'<div style="color:{text_color};font-size:2em;font-weight:bold;">'
+            f'{fmt(bal.balance_h1)}</div></div>',
+            unsafe_allow_html=True,
         )
+    
     with b2:
-        icon = "🔴" if bal.balance_h2 < 0 else "🟢"
-        st.metric(
-            f"Остаток 2-я {icon}",
-            fmt(bal.balance_h2),
-            delta_color="inverse" if bal.balance_h2 < 0 else "normal",
+        bg_color = "#e8f5e9" if is_positive_h2 else "#ffebee"
+        text_color = "#2e7d32" if is_positive_h2 else "#c62828"
+        icon = "✅" if is_positive_h2 else "⚠️"
+        label = "Положительный остаток (2-я)" if is_positive_h2 else "Дефицит (2-я)"
+        
+        st.markdown(
+            f'<div style="background:{bg_color};padding:24px;border-radius:12px;'
+            f'text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);">'
+            f'<div style="font-size:2em;margin-bottom:8px;">{icon}</div>'
+            f'<div style="color:#666;font-size:0.9em;margin-bottom:8px;">{label}</div>'
+            f'<div style="color:{text_color};font-size:2em;font-weight:bold;">'
+            f'{fmt(bal.balance_h2)}</div></div>',
+            unsafe_allow_html=True,
         )
 
 

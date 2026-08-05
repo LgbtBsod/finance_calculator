@@ -1,0 +1,18 @@
+{
+  "name": "budget-calculator-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Frontend UI for Budget Calculator using OpenUI5",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext .ts,.tsx"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2"
+  }
+}
