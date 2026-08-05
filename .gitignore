@@ -1,15 +1,1 @@
-```
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.env
-.env.local
-.env.*
-.vscode/
-.idea/
-*.log
-*.tmp
-.DS_Store
-Thumbs.db
-```
+Nothing should be ignored based on the provided file changes, as only a Python source file (`views/birthdays_tab.py`) was modified and no build artifacts, dependencies, or temporary files were included in the changes.

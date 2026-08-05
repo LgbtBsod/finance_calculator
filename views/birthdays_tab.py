@@ -30,7 +30,8 @@ def render_birthdays_tab(
             ba = st.number_input(
                 "Сумма подарка (₽)",
                 min_value=0.0,
-                step=100,
+                step=100.0,
+                value=0.0,
                 format="%g",
                 key="ba",
             )
