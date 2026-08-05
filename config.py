@@ -1,50 +1,78 @@
-"""config.py — Константы, дефолты, маппинги.
+"""config.py — Централизованная конфигурация приложения.
 
-Только статические данные, никакого состояния.
+SSOT: Единый источник истины для всех настроек и констант.
+Используем pydantic-settings для типизированных настроек.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import FrozenSet, Tuple
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 __all__ = [
     "DB_FILENAME",
     "UPLOAD_DIR",
-    "Defaults",
-    "DEFAULTS",
     "RU_BASE_HOLIDAYS",
     "MONTH_NAMES_GENITIVE",
     "MONTH_NAMES_NOMINATIVE",
     "MONTH_DISPLAY",
     "WEEKDAY_NAMES",
+    "AppSettings",
+    "get_settings",
 ]
 
 
-# ── Пути ─────────────────────────────────────────────────────
-DB_FILENAME = "budget.db"
+# ── Пути (SSOT) ──────────────────────────────────────────────
+DB_FILENAME = os.environ.get("FINANCE_DB_PATH", "budget.db")
 UPLOAD_DIR = Path(os.environ.get("FINANCE_UPLOAD_DIR", ".upload"))
 
 
-# ── Дефолтные настройки (fallback при пустой БД) ─────────────
-@dataclass(frozen=True, slots=True)
-class Defaults:
-    base_salary: str = "100000"
-    tax_rate: str = "13"
-    advance_cutoff_day: str = "15"
-    current_year: str = field(default_factory=lambda: str(date.today().year))
-    kef: str = "1.0"
-    account_shortened: str = "0"
-    standard_hours: str = "40"
+# ── Pydantic Settings для типизированных настроек приложения ─────
+class AppSettings(BaseSettings):
+    """Типизированные настройки приложения (SSOT).
+    
+    Все дефолтные значения определены ТОЛЬКО здесь.
+    Поддержка переменных окружения с префиксом FINANCE_.
+    """
+    
+    model_config = SettingsConfigDict(
+        env_prefix="FINANCE_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+    
+    # Database & Storage
+    db_path: str = DB_FILENAME
+    upload_dir: Path = UPLOAD_DIR
+    
+    # Salary calculation defaults
+    base_salary: float = 100000.0
+    tax_rate: float = 13.0
+    kef: float = 1.0
+    standard_hours: int = 40
+    
+    # Advance payment settings
+    advance_cutoff_day: int = 15
+    is_advance_date_inclusive: bool = True
+    
+    # Account settings
+    account_shortened: bool = False
+    
+    @property
+    def net_salary(self) -> float:
+        """Расчёт чистой зарплаты после налога."""
+        return self.base_salary * self.kef * (1.0 - self.tax_rate / 100.0)
 
-    def as_dict(self) -> dict[str, str]:
-        return asdict(self)
 
-
-DEFAULTS = Defaults()
+def get_settings() -> AppSettings:
+    """Factory для получения настроек (SSOT)."""
+    return AppSettings()
 
 
 # ── Базовые праздничные дни РФ (ст. 112 ТК РФ) ─────────────

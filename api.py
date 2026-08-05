@@ -9,6 +9,8 @@
 Принципы:
   - SRP: каждый endpoint отвечает за одну сущность
   - SSOT: данные хранятся только в SQLite
+  - DRY: используем dependency injection для общих зависимостей
+  - SOLID: разделение ответственности между слоями
 """
 
 from __future__ import annotations
@@ -23,8 +25,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from config import DB_FILENAME
+from config import DB_FILENAME, get_settings
 from database import DatabaseManager
+
+
+# ═══════════════════════════════════════════════════════════════
+#  DEPENDENCY INJECTION (SSOT, DRY)
+# ═══════════════════════════════════════════════════════════════
+
+def get_db() -> DatabaseManager:
+    """Factory для DatabaseManager (DI container)."""
+    return DatabaseManager(DB_FILENAME)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -130,15 +141,6 @@ class SalarySettingsUpdate(BaseModel):
     isAdvanceDateInclusive: bool | None = None
     accountShortened: bool | None = None
     standardHours: int | None = None
-
-
-# ═══════════════════════════════════════════════════════════════
-#  DEPENDENCY INJECTION
-# ═══════════════════════════════════════════════════════════════
-
-def get_db() -> DatabaseManager:
-    """Factory для DatabaseManager."""
-    return DatabaseManager(DB_FILENAME)
 
 
 # ═══════════════════════════════════════════════════════════════
