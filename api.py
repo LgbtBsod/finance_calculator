@@ -4,13 +4,14 @@
   - FastAPI приложение с CORS поддержкой
   - RESTful endpoints для всех сущностей
   - Интеграция с SQLite БД через DatabaseManager
-  - Раздача frontend (index.html)
+  - Валидация данных через Pydantic DTO (SSOT)
 
 Принципы:
   - SRP: каждый endpoint отвечает за одну сущность
-  - SSOT: данные хранятся только в SQLite
-  - DRY: используем dependency injection для общих зависимостей
+  - SSOT: данные хранятся только в SQLite, настройки в pydantic-settings
+  - DRY: используем dependency injection и общие DTO
   - SOLID: разделение ответственности между слоями
+  - OCP: расширение через добавление новых endpoints без модификации существующих
 """
 
 from __future__ import annotations
@@ -27,6 +28,9 @@ from pydantic import BaseModel, Field
 
 from config import get_settings as get_app_settings
 from database import DatabaseManager
+from models import ExpenseDTO, VacationDTO, BirthdayDTO
+
+__all__ = ["app"]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -40,7 +44,7 @@ def get_db() -> DatabaseManager:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  PYDANTIC MODELS (DTOs для API)
+#  PYDANTIC REQUEST/RESPONSE MODELS (DTO для API)
 # ═══════════════════════════════════════════════════════════════
 
 class ExpenseGroupCreate(BaseModel):
@@ -55,18 +59,6 @@ class ExpenseGroupResponse(BaseModel):
     color: str
     parentId: str | None = None
     sortOrder: int = 0
-
-
-class ExpenseItemCreate(BaseModel):
-    groupId: str
-    name: str = Field(..., min_length=1, max_length=100)
-    amount: float = Field(..., gt=0)
-    date: str
-    isInclusive: bool = False
-    half: int = Field(..., ge=1, le=2)
-    isRecurring: bool = False
-    month: int = Field(..., ge=1, le=12)
-    year: int
 
 
 class ExpenseItemResponse(BaseModel):
@@ -113,15 +105,17 @@ class DebtResponse(BaseModel):
     year: int
 
 
-class VacationCreate(BaseModel):
-    totalAmount: float = Field(..., gt=0)
-    payoutDate: str
-
-
 class VacationResponse(BaseModel):
     id: str
     totalAmount: float
     payoutDate: str
+
+
+class BirthdayResponse(BaseModel):
+    id: str
+    name: str
+    birthDate: str
+    giftAmount: float
 
 
 class SalarySettingsResponse(BaseModel):
@@ -152,6 +146,8 @@ app = FastAPI(
     title="Budget Calculator API",
     description="REST API для личного финансового калькулятора",
     version="2.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
 )
 
 app.add_middleware(
@@ -205,8 +201,8 @@ async def delete_expense_group(
 
 @app.get("/api/expense-items", response_model=list[ExpenseItemResponse])
 async def get_expense_items(
-    month: int | None = Query(None),
-    year: int | None = Query(None),
+    month: int | None = Query(None, ge=1, le=12, description="Месяц (1-12)"),
+    year: int | None = Query(None, ge=2020, le=2100, description="Год (2020-2100)"),
     db: DatabaseManager = Depends(get_db),
 ):
     """Получить расходы с фильтрацией по месяцу/году."""
@@ -217,7 +213,7 @@ async def get_expense_items(
             groupId=e.get("group_id", "default"),
             name=e["name"],
             amount=e["amount"],
-            date=e["date"].isoformat() if isinstance(e["date"], date) else e["date"],
+            date=e.get("date", date.today()).isoformat() if isinstance(e.get("date"), date) else str(e.get("date", date.today())),
             isInclusive=e.get("is_inclusive", False),
             half=e.get("half", 1),
             isRecurring=e.get("is_recurring", False),
@@ -230,32 +226,30 @@ async def get_expense_items(
 
 @app.post("/api/expense-items", response_model=ExpenseItemResponse, status_code=201)
 async def create_expense_item(
-    data: ExpenseItemCreate,
+    data: ExpenseDTO,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Создать новый расход."""
+    """Создать новый расход с валидацией через ExpenseDTO."""
     db.add_expense(
         name=data.name,
         amount=data.amount,
         month=data.month,
         year=data.year,
-        date=data.date,
         half=data.half,
-        is_inclusive=data.isInclusive,
-        is_recurring=data.isRecurring
+        is_recurring=data.is_recurring
     )
     # Возвращаем созданную запись
     expenses = db.get_expenses(month=data.month, year=data.year)
     last_expense = expenses[-1] if expenses else {}
     return ExpenseItemResponse(
         id=str(last_expense.get("id", uuid.uuid4())),
-        groupId=data.groupId,
+        groupId="default",
         name=data.name,
         amount=data.amount,
-        date=data.date,
-        isInclusive=data.isInclusive,
+        date=date.today().isoformat(),
+        isInclusive=False,
         half=data.half,
-        isRecurring=data.isRecurring,
+        isRecurring=data.is_recurring,
         month=data.month,
         year=data.year
     )
@@ -281,8 +275,8 @@ async def delete_expense_item(
 
 @app.get("/api/vacations", response_model=list[VacationResponse])
 async def get_vacations(
-    month: int | None = Query(None),
-    year: int | None = Query(None),
+    month: int | None = Query(None, ge=1, le=12),
+    year: int | None = Query(None, ge=2020, le=2100),
     db: DatabaseManager = Depends(get_db),
 ):
     """Получить все отпускные."""
@@ -291,7 +285,7 @@ async def get_vacations(
         VacationResponse(
             id=str(v.get("id", uuid.uuid4())),
             totalAmount=v["total_amount"],
-            payoutDate=v["payout_date"].isoformat() if isinstance(v["payout_date"], date) else v["payout_date"]
+            payoutDate=v["payout_date"]
         )
         for v in vacations
     ]
@@ -299,20 +293,20 @@ async def get_vacations(
 
 @app.post("/api/vacations", response_model=VacationResponse, status_code=201)
 async def create_vacation(
-    data: VacationCreate,
+    data: VacationDTO,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Создать новое начисление (отпускные)."""
+    """Создать новое начисление (отпускные) с валидацией через VacationDTO."""
     db.add_vacation(
-        total_amount=data.totalAmount,
-        payout_date=data.payoutDate
+        total_amount=data.total_amount,
+        payout_date=data.payout_date
     )
     vacations = db.get_vacations()
     last = vacations[-1] if vacations else {}
     return VacationResponse(
         id=str(last.get("id", uuid.uuid4())),
-        totalAmount=data.totalAmount,
-        payoutDate=data.payoutDate
+        totalAmount=data.total_amount,
+        payoutDate=data.payout_date
     )
 
 
@@ -327,6 +321,60 @@ async def delete_vacation(
         db.delete_vacation(vid)
     except (ValueError, Exception):
         raise HTTPException(status_code=404, detail="Vacation not found")
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════
+#  BIRTHDAYS ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/birthdays", response_model=list[BirthdayResponse])
+async def get_birthdays(db: DatabaseManager = Depends(get_db)):
+    """Получить все дни рождения."""
+    birthdays = db.get_birthdays()
+    return [
+        BirthdayResponse(
+            id=str(b.get("id", uuid.uuid4())),
+            name=b["name"],
+            birthDate=b["birth_date"],
+            giftAmount=b["gift_amount"]
+        )
+        for b in birthdays
+    ]
+
+
+@app.post("/api/birthdays", response_model=BirthdayResponse, status_code=201)
+async def create_birthday(
+    data: BirthdayDTO,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Добавить день рождения с валидацией через BirthdayDTO."""
+    db.add_birthday(
+        name=data.name,
+        birth_date=data.birth_date,
+        gift_amount=data.gift_amount
+    )
+    birthdays = db.get_birthdays()
+    last = birthdays[-1] if birthdays else {}
+    return BirthdayResponse(
+        id=str(last.get("id", uuid.uuid4())),
+        name=data.name,
+        birthDate=data.birth_date,
+        giftAmount=data.gift_amount
+    )
+
+
+@app.delete("/api/birthdays/{birthday_id}", status_code=204)
+async def delete_birthday(
+    birthday_id: str,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Удалить день рождения."""
+    try:
+        bid = int(birthday_id)
+        db.delete_birthday(bid)
+    except (ValueError, Exception):
+        raise HTTPException(status_code=404, detail="Birthday not found")
     return None
 
 
