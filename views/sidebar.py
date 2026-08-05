@@ -49,7 +49,7 @@ def _salary_settings(db: DatabaseManager) -> float:
         "Оклад (₽)",
         min_value=0.0,
         value=float(db.get_setting("base_salary") or 100000),
-        step=1000,
+        step=1000.0,
         format="%g",
     )
     st.number_input(
