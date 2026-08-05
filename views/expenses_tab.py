@@ -26,7 +26,7 @@ def render_expenses_tab(
             en = st.text_input("Название", key="en")
         with c2:
             ea = st.number_input(
-                "Сумма (₽)", value=0.0, min_value=0.0, step=100, format="%g", key="ea"
+                "Сумма (₽)", min_value=0.0, step=100.0, format="%g", key="ea"
             )
         with c3:
             eh = st.selectbox(

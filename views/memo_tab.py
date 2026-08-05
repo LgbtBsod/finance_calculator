@@ -28,7 +28,7 @@ def render_memo_tab(db: DatabaseManager) -> None:
             mn = st.text_input("Кому / за что", key="mn")
         with c2:
             ma = st.number_input(
-                "Сумма (₽)", min_value=0.0, step=100, format="%g", key="ma"
+                "Сумма (₽)", min_value=0.0, step=100.0, format="%g", key="ma"
             )
         with c3:
             md = st.date_input("Дата", value=date.today(), key="md")
