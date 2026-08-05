@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from config import DB_FILENAME, get_settings
+from config import get_settings as get_app_settings
 from database import DatabaseManager
 
 
@@ -35,7 +35,8 @@ from database import DatabaseManager
 
 def get_db() -> DatabaseManager:
     """Factory для DatabaseManager (DI container)."""
-    return DatabaseManager(DB_FILENAME)
+    settings = get_app_settings()
+    return DatabaseManager(settings.db_path)
 
 
 # ═══════════════════════════════════════════════════════════════
