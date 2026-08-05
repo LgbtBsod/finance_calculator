@@ -13,13 +13,19 @@ set VENV_PYTHON=%VENV_PATH%\Scripts\python.exe
 set VENV_PIP=%VENV_PATH%\Scripts\pip.exe
 set VENV_STREAMLIT=%VENV_PATH%\Scripts\streamlit.exe
 
+REM Проверка: если .venv не существует или повреждён, пересоздаём
 if not exist "%VENV_PYTHON%" (
-    echo [ERROR] .venv folder not found in this directory!
-    echo Current folder: %~dp0
-    echo Please make sure your .venv is here.
+    echo [INFO] Virtual environment not found or corrupted. Creating new one...
+    if exist "%VENV_PATH%" rmdir /s /q "%VENV_PATH%"
+    python -m venv "%VENV_PATH%"
+    if errorlevel 1 (
+        echo [ERROR] Failed to create virtual environment!
+        echo Make sure Python is installed and added to PATH.
+        pause
+        exit /b 1
+    )
+    echo [OK] Virtual environment created.
     echo.
-    pause
-    exit /b 1
 )
 
 "%VENV_PYTHON%" --version
