@@ -1,117 +1,93 @@
 @echo off
 chcp 65001 >nul
-title Finance Calculator - Docker Launch
+title Finance Calculator - Direct Launch
 setlocal enabledelayedexpansion
 
 echo ========================================================
 echo   Personal Finance Calculator
 echo   Architecture: Python FastAPI + TypeScript OpenUI5
-echo   Launch Mode: Docker Container
+echo   Launch Mode: Direct (No Docker)
 echo ========================================================
 echo.
 
-REM Check if Docker is available
-docker --version >nul 2>&1
+REM ============================================
+REM Check Python
+REM ============================================
+echo [1/4] Checking Python...
+python --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Docker is not installed or not in PATH!
-    echo Please install Docker Desktop: https://www.docker.com/products/docker-desktop
+    echo [ERROR] Python is not installed or not in PATH!
+    echo Please install Python 3.8+: https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-echo [OK] Docker detected
+echo [OK] Python detected
+python --version
 echo.
 
-REM Check if docker-compose is available (try both v1 and v2)
-docker-compose --version >nul 2>&1
-if errorlevel 1 (
-    docker compose version >nul 2>&1
-    if errorlevel 1 (
-        echo [ERROR] docker-compose is not installed!
-        echo Please install Docker Compose.
-        pause
-        exit /b 1
-    ) else (
-        set COMPOSE_CMD=docker compose
-    )
-) else (
-    set COMPOSE_CMD=docker-compose
-)
-
-echo [OK] Docker Compose detected
-echo.
-
-REM Build and start containers
-echo [1/3] Building Docker images...
-%COMPOSE_CMD% build
+REM ============================================
+REM Install Python dependencies
+REM ============================================
+echo [2/4] Installing Python dependencies...
+pip install -r requirements.txt
 
 if errorlevel 1 (
-    echo [ERROR] Failed to build Docker images!
+    echo [ERROR] Failed to install Python dependencies!
     pause
     exit /b 1
 )
 
-echo [OK] Build completed
+echo [OK] Python dependencies installed
 echo.
 
-echo [2/3] Starting containers...
-%COMPOSE_CMD% up -d
-
+REM ============================================
+REM Check Node.js
+REM ============================================
+echo [3/4] Checking Node.js...
+node --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Failed to start containers!
+    echo [ERROR] Node.js is not installed or not in PATH!
+    echo Please install Node.js: https://nodejs.org/
     pause
     exit /b 1
 )
 
-echo [OK] Containers started
+echo [OK] Node.js detected
+node --version
 echo.
 
-echo [3/3] Waiting for application to be ready...
-timeout /t 5 /nobreak >nul
+REM ============================================
+REM Install Node.js dependencies
+REM ============================================
+echo Installing Node.js dependencies...
+call npm install
 
-REM Health check
-echo Checking application health...
-for /l %%i in (1,1,10) do (
-    curl -s http://localhost:8000/api/health >nul 2>&1
-    if not errorlevel 1 (
-        echo [OK] Application is healthy!
-        goto :app_ready
-    )
-    echo   Attempt %%i: Waiting...
-    timeout /t 2 /nobreak >nul
+if errorlevel 1 (
+    echo [ERROR] Failed to install Node.js dependencies!
+    pause
+    exit /b 1
 )
 
-echo [WARNING] Application may not be fully ready yet. Please check logs.
-goto :show_urls
-
-:app_ready
+echo [OK] Node.js dependencies installed
 echo.
 
-:show_urls
+REM ============================================
+REM Start the application
+REM ============================================
+echo [4/4] Starting application...
 echo ========================================================
-echo   APPLICATION READY!
-echo ========================================================
 echo.
-echo   Frontend + Backend: http://localhost:8000
-echo   API Documentation:  http://localhost:8000/docs
-echo   Health Check:       http://localhost:8000/api/health
+echo   Backend (FastAPI): http://localhost:8000
+echo   API Documentation: http://localhost:8000/docs
+echo   Health Check:      http://localhost:8000/api/health
 echo.
-echo   To view logs: %COMPOSE_CMD% logs -f
-echo   To stop:        %COMPOSE_CMD% down
-echo   To restart:     %COMPOSE_CMD% restart
-echo.
+echo   Press Ctrl+C to stop the server
 echo ========================================================
 echo.
 
 REM Open browser
 start http://localhost:8000
 
-echo Press any key to view live logs (Ctrl+C to exit)...
-pause >nul
-
-%COMPOSE_CMD% logs -f
-
-echo.
-echo ========================================================
-echo [INFO] Script finished.
-pause
+REM Start FastAPI backend
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
