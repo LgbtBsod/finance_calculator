@@ -1,4 +1,5 @@
-streamlit>=1.30.0
+streamlit>=1.40.0
 pandas>=2.0.0
 work-calendar>=1.1
 pdfplumber>=0.10.0  # optional: PDF parser for calendar corrections
+starlette<0.27.0
