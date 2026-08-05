@@ -1,3 +1,1 @@
-__pycache__/
-*.db
-.__pycache__/
+Nothing needs to be added to the .gitignore file based on the provided changes. The modified file 'views/balance_tab.py' is a source code file that should not be ignored.

@@ -217,17 +217,22 @@ def _balance_metrics(bal: BalanceResult) -> None:
 
 def _bar_comparison(s: SalaryBreakdown, bal: BalanceResult) -> None:
     """Горизонтальная полоса: начисления vs расходы по половинам."""
-    labels = ["1-я половина", "2-я половина"]
-    st.bar_chart(
-        data={
+    import pandas as pd
+
+    data = pd.DataFrame(
+        {
+            "Период": ["1-я половина", "2-я половина"],
             "Начисления": [s.to_pay_half_1, s.to_pay_half_2],
             "Расходы": [bal.expenses_h1, bal.expenses_h2],
             "Остаток": [
                 s.to_pay_half_1 - bal.expenses_h1,
                 s.to_pay_half_2 - bal.expenses_h2,
             ],
-        },
-        x=labels,
+        }
+    )
+    st.bar_chart(
+        data=data,
+        x="Период",
         color=["#4CAF50", "#FF5722", "#2196F3"],
         horizontal=False,
         use_container_width=True,
