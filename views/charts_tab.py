@@ -35,6 +35,8 @@ def render_charts_tab(
 
 
 def _year_salary_chart(sal_calc: SalaryCalculator, year: int) -> None:
+    import pandas as pd
+
     months: list[str] = []
     net: list[float] = []
     adv: list[float] = []
@@ -46,17 +48,18 @@ def _year_salary_chart(sal_calc: SalaryCalculator, year: int) -> None:
         adv.append(r.advance)
         pay.append(r.payout)
 
-    st.line_chart(
-        data={"Чистая ЗП": net, "Аванс": adv, "Получка": pay},
-        x=months,
-        use_container_width=True,
+    df = pd.DataFrame(
+        {"Месяц": months, "Чистая ЗП": net, "Аванс": adv, "Получка": pay}
     )
+    st.line_chart(df.set_index("Месяц"), use_container_width=True)
 
 
 # ── Расходы за год ──────────────────────────────────────────
 
 
 def _year_expenses_chart(db: DatabaseManager, year: int) -> None:
+    import pandas as pd
+
     months: list[str] = []
     h1_total: list[float] = []
     h2_total: list[float] = []
@@ -70,9 +73,11 @@ def _year_expenses_chart(db: DatabaseManager, year: int) -> None:
             sum(float(e["amount"]) for e in exps if e["half"] == 2)
         )
 
+    df = pd.DataFrame(
+        {"Месяц": months, "1-я половина": h1_total, "2-я половина": h2_total}
+    )
     st.bar_chart(
-        data={"1-я половина": h1_total, "2-я половина": h2_total},
-        x=months,
+        df.set_index("Месяц"),
         color=["#2196F3", "#FF9800"],
         use_container_width=True,
         stack=False,
@@ -85,6 +90,8 @@ def _year_expenses_chart(db: DatabaseManager, year: int) -> None:
 def _balance_trend_chart(
     db: DatabaseManager, sal_calc: SalaryCalculator, year: int
 ) -> None:
+    import pandas as pd
+
     months: list[str] = []
     b1_data: list[float] = []
     b2_data: list[float] = []
@@ -95,8 +102,7 @@ def _balance_trend_chart(
         b1_data.append(r.balance_h1)
         b2_data.append(r.balance_h2)
 
-    st.line_chart(
-        data={"1-я половина": b1_data, "2-я половина": b2_data},
-        x=months,
-        use_container_width=True,
+    df = pd.DataFrame(
+        {"Месяц": months, "1-я половина": b1_data, "2-я половина": b2_data}
     )
+    st.line_chart(df.set_index("Месяц"), use_container_width=True)
