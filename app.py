@@ -52,19 +52,19 @@ def init_db() -> DatabaseManager:
 
 
 @st.cache_resource
-def init_calendar_service(db: DatabaseManager) -> CalendarService:
+def init_calendar_service(_db: DatabaseManager) -> CalendarService:
     svc = CalendarService(
-        get_setting=db.get_setting,
-        set_setting=db.set_setting,
-        get_corrections=db.get_corrections,
-        save_corrections=db.save_corrections,
-        clear_calendar_cache=db.clear_calendar_cache,
-        calendar_needs_fill=db.calendar_needs_fill,
-        save_calendar_data=db.save_calendar_data,
-        get_calendar_month=db.get_calendar_month,
+        get_setting=_db.get_setting,
+        set_setting=_db.set_setting,
+        get_corrections=_db.get_corrections,
+        save_corrections=_db.save_corrections,
+        clear_calendar_cache=_db.clear_calendar_cache,
+        calendar_needs_fill=_db.calendar_needs_fill,
+        save_calendar_data=_db.save_calendar_data,
+        get_calendar_month=_db.get_calendar_month,
     )
     # Предзаполнить календарь на текущий и соседние годы
-    current_year = int(db.get_setting("current_year") or date.today().year)
+    current_year = int(_db.get_setting("current_year") or date.today().year)
     for y in range(current_year - 1, current_year + 3):
         svc.build_and_cache_year(y)
     return svc
@@ -72,19 +72,19 @@ def init_calendar_service(db: DatabaseManager) -> CalendarService:
 
 @st.cache_resource
 def init_salary_calc(
-    db: DatabaseManager,
+    _db: DatabaseManager,
     cal_svc: CalendarService,
 ) -> SalaryCalculator:
     return SalaryCalculator(
-        get_setting=db.get_setting,
+        get_setting=_db.get_setting,
         calendar=cal_svc,
-        vacations=db,
+        vacations=_db,
     )
 
 
 @st.cache_resource
-def init_bd_service(db: DatabaseManager) -> BirthdayService:
-    return BirthdayService(get_setting=db.get_setting)
+def init_bd_service(_db: DatabaseManager) -> BirthdayService:
+    return BirthdayService(get_setting=_db.get_setting)
 
 
 # ═══════════════════════════════════════════════════════════════
