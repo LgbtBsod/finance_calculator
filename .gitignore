@@ -1,4 +1,58 @@
+```
+# Python
 __pycache__/
-.__pycache__/
-.venv
-*.db
+*.pyc
+*.pyo
+*.pyd
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.Python
+
+# MyPy
+.mypy_cache/
+
+# PyTest
+.pytest_cache/
+
+# Compressed files
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gz
+*.rar
+*.7z
+
+# OS generated files
+.DS_Store
+Thumbs.db
+```

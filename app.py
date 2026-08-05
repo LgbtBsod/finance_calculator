@@ -100,6 +100,10 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
 
+    # Внедрение кастомного CSS для улучшенного UI
+    from views.common import inject_custom_css
+    inject_custom_css()
+
     # Инициализация сервисов
     db = init_db()
     cal_svc = init_calendar_service(db)
@@ -109,9 +113,14 @@ def main() -> None:
     # Sidebar (возвращает выбранный период)
     sel_month, sel_year = sidebar.render_sidebar(db, cal_svc)
 
-    # Заголовок
-    st.title("💰 Личный финансовый калькулятор")
-    st.caption(f"Период: **{MONTH_DISPLAY[sel_month]} {sel_year}**")
+    # Заголовок с улучшенным оформлением
+    st.markdown(
+        '<div style="text-align:center;padding:20px 0;">'
+        '<h1 style="color:#2E86AB;margin-bottom:5px;">💰 Личный финансовый калькулятор</h1>'
+        f'<p style="color:#6c757d;font-size:1.1em;">Период: <strong>{MONTH_DISPLAY[sel_month]} {sel_year}</strong></p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     # Кэшируем календарь на выбранный год
     cal_svc.build_and_cache_year(sel_year)

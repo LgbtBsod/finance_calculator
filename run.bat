@@ -1,60 +1,117 @@
 @echo off
 chcp 65001 >nul
-title Finance Calculator - Launch
+title Finance Calculator - Docker Launch
+setlocal enabledelayedexpansion
 
 echo ========================================================
-echo   Personal Finance Calculator (Virtual Env)
-echo   Python + Streamlit
+echo   Personal Finance Calculator
+echo   Architecture: Python FastAPI + TypeScript OpenUI5
+echo   Launch Mode: Docker Container
 echo ========================================================
 echo.
 
-set VENV_PATH=%~dp0.venv
-set VENV_PYTHON=%VENV_PATH%\Scripts\python.exe
-set VENV_PIP=%VENV_PATH%\Scripts\pip.exe
-set VENV_STREAMLIT=%VENV_PATH%\Scripts\streamlit.exe
+REM Check if Docker is available
+docker --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Docker is not installed or not in PATH!
+    echo Please install Docker Desktop: https://www.docker.com/products/docker-desktop
+    pause
+    exit /b 1
+)
 
-REM Проверка: если .venv не существует или повреждён, пересоздаём
-if not exist "%VENV_PYTHON%" (
-    echo [INFO] Virtual environment not found or corrupted. Creating new one...
-    if exist "%VENV_PATH%" rmdir /s /q "%VENV_PATH%"
-    python -m venv "%VENV_PATH%"
+echo [OK] Docker detected
+echo.
+
+REM Check if docker-compose is available (try both v1 and v2)
+docker-compose --version >nul 2>&1
+if errorlevel 1 (
+    docker compose version >nul 2>&1
     if errorlevel 1 (
-        echo [ERROR] Failed to create virtual environment!
-        echo Make sure Python is installed and added to PATH.
+        echo [ERROR] docker-compose is not installed!
+        echo Please install Docker Compose.
         pause
         exit /b 1
+    ) else (
+        set COMPOSE_CMD=docker compose
     )
-    echo [OK] Virtual environment created.
-    echo.
-)
-
-"%VENV_PYTHON%" --version
-echo.
-
-echo [1/3] Checking dependencies in .venv...
-if exist "%~dp0requirements.txt" (
-    echo [INFO] Installing/updating packages from requirements.txt...
-    "%VENV_PIP%" install -r "%~dp0requirements.txt"
 ) else (
-    echo [INFO] requirements.txt not found. Installing modules manually...
-    "%VENV_PIP%" install streamlit pandas work-calendar pdfplumber
+    set COMPOSE_CMD=docker-compose
 )
-echo [OK] Dependencies checked.
+
+echo [OK] Docker Compose detected
 echo.
 
-if not exist "%~dp0.upload" mkdir "%~dp0.upload"
+REM Build and start containers
+echo [1/3] Building Docker images...
+%COMPOSE_CMD% build
 
-echo [2/3] Launching application...
+if errorlevel 1 (
+    echo [ERROR] Failed to build Docker images!
+    pause
+    exit /b 1
+)
+
+echo [OK] Build completed
 echo.
-echo   Application should open in your browser shortly.
-echo   To stop the server, press Ctrl+C in this window.
+
+echo [2/3] Starting containers...
+%COMPOSE_CMD% up -d
+
+if errorlevel 1 (
+    echo [ERROR] Failed to start containers!
+    pause
+    exit /b 1
+)
+
+echo [OK] Containers started
+echo.
+
+echo [3/3] Waiting for application to be ready...
+timeout /t 5 /nobreak >nul
+
+REM Health check
+echo Checking application health...
+for /l %%i in (1,1,10) do (
+    curl -s http://localhost:8000/api/health >nul 2>&1
+    if not errorlevel 1 (
+        echo [OK] Application is healthy!
+        goto :app_ready
+    )
+    echo   Attempt %%i: Waiting...
+    timeout /t 2 /nobreak >nul
+)
+
+echo [WARNING] Application may not be fully ready yet. Please check logs.
+goto :show_urls
+
+:app_ready
+echo.
+
+:show_urls
+echo ========================================================
+echo   APPLICATION READY!
+echo ========================================================
+echo.
+echo   Frontend + Backend: http://localhost:8000
+echo   API Documentation:  http://localhost:8000/docs
+echo   Health Check:       http://localhost:8000/api/health
+echo.
+echo   To view logs: %COMPOSE_CMD% logs -f
+echo   To stop:        %COMPOSE_CMD% down
+echo   To restart:     %COMPOSE_CMD% restart
 echo.
 echo ========================================================
 echo.
 
-"%VENV_STREAMLIT%" run "%~dp0app.py" --server.port 8501
+REM Open browser
+start http://localhost:8000
+
+echo Press any key to view live logs (Ctrl+C to exit)...
+pause >nul
+
+%COMPOSE_CMD% logs -f
 
 echo.
 echo ========================================================
-echo [INFO] Script finished or crashed.
+echo [INFO] Script finished.
 pause

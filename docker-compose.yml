@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # ─────────────────────────────────────────────────────────────
+  # Backend + Frontend (unified service)
+  # ─────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: budget-calculator
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist SQLite database
+      - ./budget.db:/app/budget.db
+      # Persist uploaded files if needed
+      - ./uploads:/app/uploads
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=sqlite:///app/budget.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - budget-network
+
+networks:
+  budget-network:
+    driver: bridge
