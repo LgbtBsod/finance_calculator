@@ -101,7 +101,7 @@ def _vacations_section(
         c1, c2 = st.columns(2)
         with c1:
             va = st.number_input(
-                "Сумма (₽)", min_value=0.0, step=1000, format="%g", key="va"
+                "Сумма (₽)", min_value=0, step=1000, format="%d", key="va"
             )
         with c2:
             vd = st.date_input(
