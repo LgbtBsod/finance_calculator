@@ -52,13 +52,51 @@ run.bat
 
 ## 🔌 API Endpoints
 
+### Общие
 | Endpoint | Метод | Описание |
 |----------|-------|----------|
 | `/api/health` | GET | Проверка статуса API |
-| `/api/settings` | GET/PUT | Настройки зарплаты |
-| `/api/expense-groups` | GET/POST | Группы расходов |
-| `/api/debts` | GET/POST | Долги |
-| `/docs` | GET | Swagger документация |
+| `/` | GET | Frontend приложение |
+| `/docs` | GET | Swagger документация (OpenAPI) |
+| `/redoc` | GET | ReDoc документация |
+
+### Настройки
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/api/settings` | GET | Получить настройки зарплаты |
+| `/api/settings` | PUT | Обновить настройки зарплаты |
+
+### Группы расходов
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/api/expense-groups` | GET | Получить все группы расходов |
+| `/api/expense-groups` | POST | Создать группу расходов |
+| `/api/expense-groups/{id}` | GET | Получить группу по ID |
+| `/api/expense-groups/{id}` | PUT | Обновить группу |
+| `/api/expense-groups/{id}` | DELETE | Удалить группу |
+
+### Расходы
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/api/expense-items` | GET | Получить все расходы (с фильтрацией ?month=&year=) |
+| `/api/expense-items` | POST | Создать расход |
+| `/api/expense-items/{id}` | GET | Получить расход по ID |
+| `/api/expense-items/{id}` | PUT | Обновить расход |
+| `/api/expense-items/{id}` | DELETE | Удалить расход |
+
+### Отпускные
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/api/vacations` | GET | Получить все отпускные |
+| `/api/vacations` | POST | Создать отпускные |
+| `/api/vacations/{id}` | DELETE | Удалить отпускные |
+
+### Дни рождения
+| Endpoint | Метод | Описание |
+|----------|-------|----------|
+| `/api/birthdays` | GET | Получить все дни рождения |
+| `/api/birthdays` | POST | Добавить день рождения |
+| `/api/birthdays/{id}` | DELETE | Удалить день рождения |
 
 ## 🛠️ Установка зависимостей
 
