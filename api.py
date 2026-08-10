@@ -117,7 +117,7 @@ class DebtCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=100)
     totalAmount: float = Field(..., gt=0)
     month: int = Field(..., ge=1, le=12)
-    year: int
+    year: int = Field(..., ge=2020, le=2100)
 
 
 class DebtResponse(BaseModel):
@@ -128,6 +128,12 @@ class DebtResponse(BaseModel):
     createdAt: str
     month: int
     year: int
+
+
+class DebtSettings(BaseModel):
+    payoutDay1: int = Field(default=10, ge=1, le=31, description="Первый день выплаты")
+    payoutDay2: int = Field(default=25, ge=1, le=31, description="Второй день выплаты")
+    moveWeekendToFriday: bool = Field(default=False, description="Переносить выходные на пятницу")
 
 
 class VacationCreate(BaseModel):
@@ -162,6 +168,9 @@ class SalarySettingsResponse(BaseModel):
     isAdvanceDateInclusive: bool
     accountShortened: bool
     standardHours: int
+    payoutDay1: int = 10
+    payoutDay2: int = 25
+    moveWeekendToFriday: bool = False
 
 
 class SalarySettingsUpdate(BaseModel):
@@ -172,6 +181,9 @@ class SalarySettingsUpdate(BaseModel):
     isAdvanceDateInclusive: bool | None = None
     accountShortened: bool | None = None
     standardHours: int | None = None
+    payoutDay1: int | None = None
+    payoutDay2: int | None = None
+    moveWeekendToFriday: bool | None = None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -202,8 +214,17 @@ app.add_middleware(
 @app.get("/api/expense-groups", response_model=list[ExpenseGroupResponse])
 async def get_expense_groups(db: DatabaseManager = Depends(get_db)):
     """Получить все группы расходов."""
-    # Пока возвращаем пустой список, т.к. в БД нет таблицы групп
-    return []
+    groups = db.get_expense_groups()
+    return [
+        ExpenseGroupResponse(
+            id=g["id"],
+            name=g["name"],
+            color=g["color"],
+            parentId=g["parent_id"],
+            sortOrder=g["sort_order"]
+        )
+        for g in groups
+    ]
 
 
 @app.post("/api/expense-groups", response_model=ExpenseGroupResponse, status_code=201)
@@ -212,7 +233,16 @@ async def create_expense_group(
     db: DatabaseManager = Depends(get_db),
 ):
     """Создать новую группу расходов."""
-    group_id = str(uuid.uuid4())
+    group_id = data.parentId or str(uuid.uuid4())
+    if not data.parentId:
+        group_id = str(uuid.uuid4())
+    db.create_expense_group(
+        group_id=group_id,
+        name=data.name,
+        color=data.color,
+        parent_id=data.parentId,
+        sort_order=0
+    )
     return ExpenseGroupResponse(
         id=group_id,
         name=data.name,
@@ -228,7 +258,16 @@ async def get_expense_group(
     db: DatabaseManager = Depends(get_db),
 ):
     """Получить группу расходов по ID."""
-    raise HTTPException(status_code=404, detail="Not implemented")
+    group = db.get_expense_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return ExpenseGroupResponse(
+        id=group["id"],
+        name=group["name"],
+        color=group["color"],
+        parentId=group["parent_id"],
+        sortOrder=group["sort_order"]
+    )
 
 
 @app.put("/api/expense-groups/{group_id}", response_model=ExpenseGroupResponse)
@@ -238,7 +277,23 @@ async def update_expense_group(
     db: DatabaseManager = Depends(get_db),
 ):
     """Обновить группу расходов."""
-    raise HTTPException(status_code=404, detail="Not implemented")
+    db.update_expense_group(
+        group_id=group_id,
+        name=data.name,
+        color=data.color,
+        parent_id=data.parentId,
+        sort_order=data.sortOrder
+    )
+    group = db.get_expense_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return ExpenseGroupResponse(
+        id=group["id"],
+        name=group["name"],
+        color=group["color"],
+        parentId=group["parent_id"],
+        sortOrder=group["sort_order"]
+    )
 
 
 @app.delete("/api/expense-groups/{group_id}", status_code=204)
@@ -247,7 +302,8 @@ async def delete_expense_group(
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить группу расходов."""
-    raise HTTPException(status_code=404, detail="Not implemented")
+    db.delete_expense_group(group_id)
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -537,7 +593,10 @@ async def get_settings(db: DatabaseManager = Depends(get_db)):
         advanceCutoffDay=int(db.get_setting("advance_cutoff_day") or "15"),
         isAdvanceDateInclusive=db.get_setting("is_advance_date_inclusive") == "true",
         accountShortened=db.get_setting("account_shortened") == "true",
-        standardHours=int(db.get_setting("standard_hours") or "40")
+        standardHours=int(db.get_setting("standard_hours") or "40"),
+        payoutDay1=int(db.get_setting("payout_day1") or "10"),
+        payoutDay2=int(db.get_setting("payout_day2") or "25"),
+        moveWeekendToFriday=db.get_setting("move_weekend_to_friday") == "true"
     )
 
 
@@ -561,8 +620,144 @@ async def update_settings(
         db.set_setting("account_shortened", str(updates.accountShortened).lower())
     if updates.standardHours is not None:
         db.set_setting("standard_hours", str(updates.standardHours))
+    if updates.payoutDay1 is not None:
+        db.set_setting("payout_day1", str(updates.payoutDay1))
+    if updates.payoutDay2 is not None:
+        db.set_setting("payout_day2", str(updates.payoutDay2))
+    if updates.moveWeekendToFriday is not None:
+        db.set_setting("move_weekend_to_friday", str(updates.moveWeekendToFriday).lower())
     
     return await get_settings(db)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  DEBTS ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/debts", response_model=list[DebtResponse])
+async def get_debts(db: DatabaseManager = Depends(get_db)):
+    """Получить все долги."""
+    debts = db.get_debts()
+    return [
+        DebtResponse(
+            id=str(d["id"]),
+            title=d["title"],
+            totalAmount=d["total_amount"],
+            repayments=[
+                RepaymentResponse(
+                    id=str(r["id"]),
+                    debtId=str(r["debt_id"]),
+                    amount=r["amount"],
+                    date=r["date"],
+                    note=r["note"]
+                )
+                for r in d.get("repayments", [])
+            ],
+            createdAt=d["created_at"],
+            month=d["month"],
+            year=d["year"]
+        )
+        for d in debts
+    ]
+
+
+@app.post("/api/debts", response_model=DebtResponse, status_code=201)
+async def create_debt(
+    data: DebtCreate,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Создать новый долг."""
+    debt_id = db.create_debt(
+        title=data.title,
+        total_amount=data.totalAmount,
+        month=data.month,
+        year=data.year
+    )
+    # Fetch the created debt
+    debts = db.get_debts()
+    created_debt = next((d for d in debts if str(d["id"]) == str(debt_id)), None)
+    if not created_debt:
+        raise HTTPException(status_code=500, detail="Failed to fetch created debt")
+    
+    return DebtResponse(
+        id=str(created_debt["id"]),
+        title=created_debt["title"],
+        totalAmount=created_debt["total_amount"],
+        repayments=[
+            RepaymentResponse(
+                id=str(r["id"]),
+                debtId=str(r["debt_id"]),
+                amount=r["amount"],
+                date=r["date"],
+                note=r["note"]
+            )
+            for r in created_debt.get("repayments", [])
+        ],
+        createdAt=created_debt["created_at"],
+        month=created_debt["month"],
+        year=created_debt["year"]
+    )
+
+
+@app.delete("/api/debts/{debt_id}", status_code=204)
+async def delete_debt(
+    debt_id: str,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Удалить долг."""
+    try:
+        did = int(debt_id)
+        db.delete_debt(did)
+    except (ValueError, Exception):
+        raise HTTPException(status_code=404, detail="Debt not found")
+    return None
+
+
+@app.post("/api/debts/{debt_id}/repayments", response_model=RepaymentResponse, status_code=201)
+async def add_debt_repayment(
+    debt_id: str,
+    data: RepaymentCreate,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Добавить погашение долга."""
+    try:
+        did = int(debt_id)
+        db.add_debt_repayment(
+            debt_id=did,
+            amount=data.amount,
+            date=data.date,
+            note=data.note
+        )
+        # Fetch the repayment
+        debts = db.get_debts()
+        for debt in debts:
+            if str(debt["id"]) == str(did):
+                if debt["repayments"]:
+                    last_repayment = debt["repayments"][-1]
+                    return RepaymentResponse(
+                        id=str(last_repayment["id"]),
+                        debtId=str(last_repayment["debt_id"]),
+                        amount=last_repayment["amount"],
+                        date=last_repayment["date"],
+                        note=last_repayment["note"]
+                    )
+        raise HTTPException(status_code=500, detail="Failed to fetch created repayment")
+    except (ValueError, Exception) as e:
+        raise HTTPException(status_code=404, detail=f"Debt not found: {e}")
+
+
+@app.delete("/api/debts/repayments/{repayment_id}", status_code=204)
+async def delete_debt_repayment(
+    repayment_id: str,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Удалить погашение долга."""
+    try:
+        rid = int(repayment_id)
+        db.delete_debt_repayment(rid)
+    except (ValueError, Exception):
+        raise HTTPException(status_code=404, detail="Repayment not found")
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════

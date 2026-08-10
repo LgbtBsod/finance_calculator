@@ -75,6 +75,11 @@ class AppSettings(BaseSettings):
     # Account settings
     account_shortened: bool = False
     
+    # Payout settings
+    payout_day1: int = 10
+    payout_day2: int = 25
+    move_weekend_to_friday: bool = False
+    
     @property
     def net_salary(self) -> float:
         """Расчёт чистой зарплаты после налога."""

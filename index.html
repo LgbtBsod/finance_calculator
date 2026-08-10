@@ -956,6 +956,22 @@
                     <label>Стандартные часы</label>
                     <input type="number" id="setting-standard-hours" placeholder="40">
                 </div>
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--gray-200);">
+                <h3 style="color: var(--primary); margin-bottom: 15px;">Дни выплаты зарплаты</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Первый день выплаты</label>
+                        <input type="number" id="setting-payout-day1" placeholder="10" min="1" max="31">
+                    </div>
+                    <div class="form-group">
+                        <label>Второй день выплаты</label>
+                        <input type="number" id="setting-payout-day2" placeholder="25" min="1" max="31">
+                    </div>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                    <input type="checkbox" id="setting-move-weekend" style="width: auto;">
+                    <label for="setting-move-weekend" style="margin: 0; cursor: pointer;">Переносить выходные дни выплат на пятницу</label>
+                </div>
                 <button class="btn btn-primary" onclick="saveSettings()">💾 Сохранить настройки</button>
             </div>
         </div>
@@ -972,7 +988,10 @@
                 taxRate: 13,
                 kef: 1.0,
                 advanceCutoffDay: 15,
-                standardHours: 40
+                standardHours: 40,
+                payoutDay1: 10,
+                payoutDay2: 25,
+                moveWeekendToFriday: false
             },
             expenseGroups: [],
             debts: []
@@ -1113,6 +1132,9 @@
             document.getElementById('setting-kef').value = state.settings.kef;
             document.getElementById('setting-cutoff-day').value = state.settings.advanceCutoffDay;
             document.getElementById('setting-standard-hours').value = state.settings.standardHours;
+            document.getElementById('setting-payout-day1').value = state.settings.payoutDay1 || 10;
+            document.getElementById('setting-payout-day2').value = state.settings.payoutDay2 || 25;
+            document.getElementById('setting-move-weekend').checked = state.settings.moveWeekendToFriday || false;
         }
         
         function updateBalanceUI() {
@@ -1212,6 +1234,9 @@
             state.settings.kef = parseFloat(document.getElementById('setting-kef').value) || 1;
             state.settings.advanceCutoffDay = parseInt(document.getElementById('setting-cutoff-day').value) || 15;
             state.settings.standardHours = parseInt(document.getElementById('setting-standard-hours').value) || 40;
+            state.settings.payoutDay1 = parseInt(document.getElementById('setting-payout-day1').value) || 10;
+            state.settings.payoutDay2 = parseInt(document.getElementById('setting-payout-day2').value) || 25;
+            state.settings.moveWeekendToFriday = document.getElementById('setting-move-weekend').checked;
             
             saveSettingsToAPI();
             updateBalanceUI();
