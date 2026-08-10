@@ -11,852 +11,8 @@
     <meta name="format-detection" content="telephone=no">
     <meta name="msapplication-TileColor" content="#007AFF">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+    <link rel="stylesheet" href="/static/css/styles.css">
     <title>Финансовый Калькулятор</title>
-    <style>
-        /* ═══════════════════════════════════════════════════════════════
-           CSS CUSTOM PROPERTIES (Apple Design System)
-           ═══════════════════════════════════════════════════════════════ */
-        :root {
-            /* Apple-inspired Color Palette */
-            --primary: #007AFF;
-            --primary-dark: #0056CC;
-            --primary-light: #409CFF;
-            --secondary: #5856D6;
-            --success: #34C759;
-            --success-light: #E8F5E9;
-            --danger: #FF3B30;
-            --danger-light: #FFEAEA;
-            --warning: #FF9500;
-            --warning-light: #FFF5E6;
-            --info: #5AC8FA;
-            
-            /* Neutral Colors (SF Pro inspired) */
-            --gray-50: #FBFBFD;
-            --gray-100: #F2F2F7;
-            --gray-200: #E5E5EA;
-            --gray-300: #D1D1D6;
-            --gray-400: #AEAEB2;
-            --gray-500: #8E8E93;
-            --gray-600: #636366;
-            --gray-700: #48484A;
-            --gray-800: #3A3A3C;
-            --gray-900: #1C1C1E;
-            
-            /* System Backgrounds */
-            --bg-primary: #FFFFFF;
-            --bg-secondary: #F2F2F7;
-            --bg-tertiary: #FFFFFF;
-            --bg-overlay: rgba(0, 0, 0, 0.4);
-            
-            /* Typography (SF Pro-like stack) */
-            --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', Roboto, Arial, sans-serif;
-            --font-size-xs: 11px;
-            --font-size-sm: 13px;
-            --font-size-base: 15px;
-            --font-size-lg: 17px;
-            --font-size-xl: 20px;
-            --font-size-2xl: 24px;
-            --font-size-3xl: 28px;
-            --font-size-4xl: 34px;
-            
-            --font-weight-regular: 400;
-            --font-weight-medium: 500;
-            --font-weight-semibold: 600;
-            --font-weight-bold: 700;
-            
-            --line-height-tight: 1.2;
-            --line-height-base: 1.47059;
-            --line-height-relaxed: 1.6;
-            
-            /* Spacing Scale (8pt grid system) */
-            --spacing-0: 0;
-            --spacing-1: 2px;
-            --spacing-2: 4px;
-            --spacing-3: 8px;
-            --spacing-4: 12px;
-            --spacing-5: 16px;
-            --spacing-6: 20px;
-            --spacing-8: 24px;
-            --spacing-10: 32px;
-            --spacing-12: 40px;
-            --spacing-16: 48px;
-            --spacing-20: 64px;
-            
-            /* Border Radius (Apple-style) */
-            --radius-sm: 6px;
-            --radius-md: 10px;
-            --radius-lg: 14px;
-            --radius-xl: 18px;
-            --radius-2xl: 22px;
-            --radius-full: 9999px;
-            
-            /* Shadows (Subtle, layered) */
-            --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
-            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.06);
-            --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
-            --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.1);
-            --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.12);
-            --shadow-2xl: 0 16px 32px rgba(0, 0, 0, 0.16);
-            
-            /* Elevation for cards */
-            --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-            --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
-            
-            /* Transitions (Apple-like easing) */
-            --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
-            --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-            --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            
-            --transition-fast: 200ms var(--ease-out);
-            --transition-base: 300ms var(--ease-out);
-            --transition-slow: 500ms var(--ease-spring);
-            
-            /* Z-Index Scale */
-            --z-dropdown: 100;
-            --z-sticky: 200;
-            --z-modal-backdrop: 300;
-            --z-modal: 301;
-            --z-toast: 400;
-            --z-tooltip: 500;
-            
-            /* Safe Areas (for notched devices) */
-            --safe-area-top: env(safe-area-inset-top, 0px);
-            --safe-area-right: env(safe-area-inset-right, 0px);
-            --safe-area-bottom: env(safe-area-inset-bottom, 0px);
-            --safe-area-left: env(safe-area-inset-left, 0px);
-        }
-        
-        /* Dark Mode Support */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg-primary: #1C1C1E;
-                --bg-secondary: #2C2C2E;
-                --bg-tertiary: #3A3A3C;
-                --gray-50: #1C1C1E;
-                --gray-100: #2C2C2E;
-                --gray-200: #3A3A3C;
-                --gray-300: #48484A;
-                --gray-400: #636366;
-                --gray-500: #8E8E93;
-                --gray-600: #AEAEB2;
-                --gray-700: #D1D1D6;
-                --gray-800: #E5E5EA;
-                --gray-900: #F2F2F7;
-                --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-                --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.3);
-                --bg-overlay: rgba(0, 0, 0, 0.6);
-            }
-        }
-        
-        /* Reduced Motion */
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-            }
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           RESET & BASE STYLES
-           ═══════════════════════════════════════════════════════════════ */
-        *, *::before, *::after {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
-        }
-        
-        html {
-            font-size: 16px;
-            -webkit-text-size-adjust: 100%;
-            scroll-behavior: smooth;
-        }
-        
-        body {
-            font-family: var(--font-family);
-            font-size: var(--font-size-base);
-            line-height: var(--line-height-base);
-            font-weight: var(--font-weight-regular);
-            color: var(--gray-900);
-            background: var(--bg-secondary);
-            min-height: 100vh;
-            min-height: 100dvh;
-            padding: var(--spacing-4);
-            padding-top: calc(var(--spacing-4) + var(--safe-area-top));
-            padding-bottom: calc(var(--spacing-4) + var(--safe-area-bottom));
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            text-rendering: optimizeLegibility;
-        }
-        
-        @media (max-width: 640px) {
-            body {
-                padding: var(--spacing-2);
-                padding-top: calc(var(--spacing-2) + var(--safe-area-top));
-                padding-bottom: calc(var(--spacing-2) + var(--safe-area-bottom));
-            }
-        }
-        
-        /* Focus Styles (Apple-style) */
-        :focus-visible {
-            outline: 2px solid var(--primary);
-            outline-offset: 2px;
-            border-radius: var(--radius-sm);
-        }
-        
-        button:focus-visible,
-        input:focus-visible,
-        select:focus-visible {
-            outline: 2px solid var(--primary);
-            outline-offset: 2px;
-        }
-        
-        /* Selection Color */
-        ::selection {
-            background: var(--primary-light);
-            color: white;
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           LAYOUT
-           ═══════════════════════════════════════════════════════════════ */
-        .container {
-            max-width: 1024px;
-            margin: 0 auto;
-            background: var(--bg-primary);
-            border-radius: var(--radius-2xl);
-            box-shadow: var(--shadow-xl);
-            overflow: hidden;
-        }
-        
-        header {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-            color: white;
-            padding: calc(var(--spacing-10) + var(--safe-area-top)) var(--spacing-6) var(--spacing-8);
-            text-align: center;
-            position: relative;
-        }
-        
-        header h1 {
-            font-size: var(--font-size-3xl);
-            font-weight: var(--font-weight-bold);
-            margin-bottom: var(--spacing-2);
-            letter-spacing: -0.02em;
-        }
-        
-        @media (min-width: 768px) {
-            header h1 {
-                font-size: var(--font-size-4xl);
-            }
-        }
-        
-        header p {
-            opacity: 0.9;
-            font-size: var(--font-size-base);
-            font-weight: var(--font-weight-medium);
-        }
-        
-        /* Tabs */
-        .tabs {
-            display: flex;
-            background: var(--gray-50);
-            border-bottom: 2px solid var(--gray-200);
-            gap: var(--spacing-1);
-            padding: var(--spacing-2);
-            flex-wrap: wrap;
-        }
-        
-        .tab-btn {
-            flex: 1;
-            min-width: 120px;
-            padding: var(--spacing-4) var(--spacing-6);
-            border: none;
-            background: transparent;
-            cursor: pointer;
-            font-size: var(--font-size-base);
-            font-weight: 500;
-            transition: all var(--transition-base);
-            border-radius: var(--radius-lg);
-            color: var(--gray-600);
-            position: relative;
-        }
-        
-        .tab-btn:hover {
-            background: var(--gray-200);
-            color: var(--gray-800);
-        }
-        
-        .tab-btn:focus {
-            outline: 2px solid var(--primary);
-            outline-offset: 2px;
-        }
-        
-        .tab-btn.active {
-            background: white;
-            color: var(--primary);
-            font-weight: 600;
-            box-shadow: var(--shadow-md);
-        }
-        
-        .tab-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: -8px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 20px;
-            height: 3px;
-            background: var(--primary);
-            border-radius: 2px;
-        }
-        
-        .tab-content {
-            padding: var(--spacing-8);
-            display: none;
-            animation: fadeIn var(--transition-base);
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
-        /* Cards */
-        .card-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: var(--spacing-6);
-            margin-top: var(--spacing-6);
-        }
-        
-        .card {
-            background: linear-gradient(135deg, var(--secondary) 0%, #764ba2 100%);
-            color: white;
-            padding: var(--spacing-6);
-            border-radius: var(--radius-xl);
-            box-shadow: var(--shadow-lg);
-            transition: transform var(--transition-base), box-shadow var(--transition-base);
-        }
-        
-        .card:hover {
-            transform: translateY(-4px);
-            box-shadow: var(--shadow-xl);
-        }
-        
-        .card h3 {
-            font-size: var(--font-size-sm);
-            opacity: 0.95;
-            margin-bottom: var(--spacing-3);
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        
-        .card .amount {
-            font-size: var(--font-size-2xl);
-            font-weight: 700;
-        }
-        
-        .card.green {
-            background: linear-gradient(135deg, var(--success) 0%, var(--success-light) 100%);
-        }
-        
-        .card.orange {
-            background: linear-gradient(135deg, var(--danger-light) 0%, var(--danger) 100%);
-        }
-        
-        .card.white {
-            background: white;
-            color: var(--gray-800);
-            border: 1px solid var(--gray-200);
-        }
-        
-        /* Sections */
-        .section {
-            margin-bottom: var(--spacing-10);
-        }
-        
-        .section h2 {
-            color: var(--primary);
-            margin-bottom: var(--spacing-6);
-            padding-bottom: var(--spacing-3);
-            border-bottom: 2px solid var(--gray-200);
-            font-size: var(--font-size-xl);
-            font-weight: 600;
-        }
-        
-        /* Forms */
-        .form-group {
-            margin-bottom: var(--spacing-5);
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: var(--spacing-2);
-            color: var(--gray-700);
-            font-weight: 500;
-            font-size: var(--font-size-sm);
-        }
-        
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: var(--spacing-3) var(--spacing-4);
-            border: 2px solid var(--gray-200);
-            border-radius: var(--radius-md);
-            font-size: var(--font-size-base);
-            transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-            font-family: inherit;
-        }
-        
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(46, 134, 171, 0.1);
-        }
-        
-        .form-group input::placeholder {
-            color: var(--gray-400);
-        }
-        
-        .form-group input[type="color"] {
-            height: 50px;
-            padding: var(--spacing-2);
-            cursor: pointer;
-        }
-        
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: var(--spacing-4);
-        }
-        
-        @media (min-width: 640px) {
-            .form-row {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           BUTTONS (iOS-style Buttons)
-           ═══════════════════════════════════════════════════════════════ */
-        .btn {
-            padding: var(--spacing-3) var(--spacing-6);
-            min-height: 44px;
-            border: none;
-            border-radius: var(--radius-md);
-            font-size: var(--font-size-base);
-            font-weight: var(--font-weight-semibold);
-            cursor: pointer;
-            transition: all var(--transition-fast);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: var(--spacing-2);
-            font-family: inherit;
-            text-decoration: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        
-        .btn:focus-visible {
-            outline: 2px solid var(--primary);
-            outline-offset: 2px;
-        }
-        
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
-            box-shadow: 0 2px 4px rgba(0, 122, 255, 0.3);
-        }
-        
-        .btn-primary:hover:not(:disabled) {
-            transform: scale(1.02);
-            box-shadow: 0 4px 8px rgba(0, 122, 255, 0.4);
-        }
-        
-        .btn-primary:active:not(:disabled) {
-            transform: scale(0.98);
-        }
-        
-        .btn-danger {
-            background: linear-gradient(135deg, var(--danger) 0%, #D70015 100%);
-            color: white;
-            box-shadow: 0 2px 4px rgba(255, 59, 48, 0.3);
-        }
-        
-        .btn-danger:hover:not(:disabled) {
-            transform: scale(1.02);
-            box-shadow: 0 4px 8px rgba(255, 59, 48, 0.4);
-        }
-        
-        .btn-secondary {
-            background: var(--gray-200);
-            color: var(--gray-700);
-        }
-        
-        .btn-secondary:hover:not(:disabled) {
-            background: var(--gray-300);
-            transform: scale(1.02);
-        }
-        
-        .btn-large {
-            padding: var(--spacing-4) var(--spacing-8);
-            font-size: var(--font-size-lg);
-            border-radius: var(--radius-lg);
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           STATUS BADGES
-           ═══════════════════════════════════════════════════════════════ */
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--spacing-2);
-            padding: var(--spacing-2) var(--spacing-4);
-            border-radius: var(--radius-full);
-            font-size: var(--font-size-xs);
-            font-weight: var(--font-weight-semibold);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        
-        .status-badge.success {
-            background: var(--success-light);
-            color: #1B8A3C;
-        }
-        
-        .status-badge.warning {
-            background: var(--warning-light);
-            color: #CC7A00;
-        }
-        
-        .status-badge.error {
-            background: var(--danger-light);
-            color: #CC0000;
-        }
-        
-        .status-badge.info {
-            background: rgba(90, 200, 250, 0.2);
-            color: var(--info);
-        }
-        
-        /* API Status */
-        .api-status {
-            text-align: center;
-            padding: var(--spacing-6);
-            background: var(--gray-50);
-            border-radius: var(--radius-lg);
-            margin-bottom: var(--spacing-6);
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           LOADING STATES
-           ═══════════════════════════════════════════════════════════════ */
-        .loading {
-            text-align: center;
-            padding: var(--spacing-10);
-            color: var(--gray-500);
-        }
-        
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid var(--gray-200);
-            border-top-color: var(--primary);
-            border-radius: 50%;
-            animation: spin 0.8s var(--ease-out) infinite;
-            margin: 0 auto var(--spacing-4);
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        /* Skeleton Loader */
-        .skeleton {
-            background: linear-gradient(90deg, var(--gray-100) 25%, var(--gray-200) 50%, var(--gray-100) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s var(--ease-out) infinite;
-            border-radius: var(--radius-md);
-            height: 20px;
-        }
-        
-        @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           TOAST NOTIFICATIONS (iOS-style)
-           ═══════════════════════════════════════════════════════════════ */
-        .toast-container {
-            position: fixed;
-            top: calc(var(--spacing-4) + var(--safe-area-top));
-            right: calc(var(--spacing-4) + var(--safe-area-right));
-            z-index: var(--z-toast);
-            display: flex;
-            flex-direction: column;
-            gap: var(--spacing-3);
-            max-width: calc(100vw - var(--spacing-8));
-        }
-        
-        .toast {
-            background: var(--bg-primary);
-            padding: var(--spacing-4) var(--spacing-5);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-2xl);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-3);
-            animation: slideIn var(--transition-base);
-            max-width: 360px;
-            border: 1px solid var(--gray-200);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-        }
-        
-        .toast.success {
-            border-left: 4px solid var(--success);
-        }
-        
-        .toast.error {
-            border-left: 4px solid var(--danger);
-        }
-        
-        .toast.warning {
-            border-left: 4px solid var(--warning);
-        }
-        
-        .toast.info {
-            border-left: 4px solid var(--info);
-        }
-        
-        @keyframes slideIn {
-            from {
-                transform: translateX(calc(100% + var(--spacing-4)));
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-        
-        @keyframes slideOut {
-            to {
-                transform: translateX(calc(100% + var(--spacing-4)));
-                opacity: 0;
-            }
-        }
-        
-        .toast.hiding {
-            animation: slideOut var(--transition-fast) forwards;
-        }
-        
-        .toast-close {
-            margin-left: auto;
-            background: none;
-            border: none;
-            cursor: pointer;
-            color: var(--gray-400);
-            font-size: var(--font-size-xl);
-            padding: var(--spacing-1);
-            line-height: 1;
-            border-radius: var(--radius-sm);
-            transition: color var(--transition-fast);
-        }
-        
-        .toast-close:hover {
-            color: var(--gray-600);
-            background: var(--gray-100);
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           EMPTY STATE
-           ═══════════════════════════════════════════════════════════════ */
-        .empty-state {
-            text-align: center;
-            padding: var(--spacing-12);
-            color: var(--gray-500);
-        }
-        
-        .empty-state-icon {
-            font-size: 3rem;
-            margin-bottom: var(--spacing-4);
-            opacity: 0.5;
-        }
-        
-        .empty-state h3 {
-            font-size: var(--font-size-lg);
-            font-weight: var(--font-weight-semibold);
-            color: var(--gray-700);
-            margin-bottom: var(--spacing-2);
-        }
-        
-        .empty-state p {
-            font-size: var(--font-size-sm);
-            opacity: 0.8;
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           MODAL (iOS Action Sheet Style)
-           ═══════════════════════════════════════════════════════════════ */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: var(--bg-overlay);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: var(--z-modal-backdrop);
-            opacity: 0;
-            visibility: hidden;
-            transition: all var(--transition-base);
-            padding: var(--spacing-4);
-            padding-top: calc(var(--spacing-4) + var(--safe-area-top));
-            padding-bottom: calc(var(--spacing-4) + var(--safe-area-bottom));
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-        
-        .modal-overlay.active {
-            opacity: 1;
-            visibility: visible;
-        }
-        
-        .modal {
-            background: var(--bg-primary);
-            padding: var(--spacing-8);
-            border-radius: var(--radius-2xl);
-            box-shadow: var(--shadow-2xl);
-            max-width: 480px;
-            width: 100%;
-            transform: scale(0.9) translateY(20px);
-            transition: transform var(--transition-base);
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-        
-        .modal-overlay.active .modal {
-            transform: scale(1) translateY(0);
-        }
-        
-        .modal h3 {
-            font-size: var(--font-size-xl);
-            margin-bottom: var(--spacing-4);
-            color: var(--gray-900);
-            font-weight: var(--font-weight-bold);
-        }
-        
-        .modal-actions {
-            display: flex;
-            gap: var(--spacing-3);
-            justify-content: flex-end;
-            margin-top: var(--spacing-6);
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           RESPONSIVE DESIGN
-           ═══════════════════════════════════════════════════════════════ */
-        @media (max-width: 640px) {
-            .tabs {
-                flex-direction: row;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-                margin: var(--spacing-2);
-                border-radius: var(--radius-md);
-            }
-            
-            .tab-btn {
-                min-width: auto;
-                white-space: nowrap;
-                padding: var(--spacing-2) var(--spacing-3);
-                font-size: var(--font-size-xs);
-            }
-            
-            .card-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .modal-actions {
-                flex-direction: column-reverse;
-            }
-            
-            .btn {
-                width: 100%;
-            }
-            
-            header h1 {
-                font-size: var(--font-size-2xl);
-            }
-            
-            .container {
-                border-radius: var(--radius-lg);
-            }
-        }
-        
-        /* Tablet */
-        @media (min-width: 641px) and (max-width: 1024px) {
-            .card-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-        
-        /* Desktop */
-        @media (min-width: 1025px) {
-            .card-grid {
-                grid-template-columns: repeat(3, 1fr);
-            }
-        }
-        
-        /* ═══════════════════════════════════════════════════════════════
-           PRINT STYLES
-           ═══════════════════════════════════════════════════════════════ */
-        @media print {
-            body {
-                background: white;
-                padding: 0;
-                color: black;
-            }
-            
-            .container {
-                box-shadow: none;
-                max-width: 100%;
-            }
-            
-            header {
-                background: white;
-                color: black;
-                padding: var(--spacing-4);
-            }
-            
-            .tabs, .btn, .form-group, .modal-overlay {
-                display: none !important;
-            }
-            
-            .card {
-                break-inside: avoid;
-                box-shadow: none;
-                border: 1px solid #ccc;
-            }
-            
-            a[href]::after {
-                content: " (" attr(href) ")";
-            }
-        }
-    </style>
 </head>
 <body>
     <div class="container">
@@ -867,6 +23,7 @@
         
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('balance')" role="tab" aria-selected="true" aria-controls="balance">📊 Баланс и ЗП</button>
+            <button class="tab-btn" onclick="switchTab('analytics')" role="tab" aria-selected="false" aria-controls="analytics">📈 Аналитика</button>
             <button class="tab-btn" onclick="switchTab('expenses')" role="tab" aria-selected="false" aria-controls="expenses">💸 Расходы</button>
             <button class="tab-btn" onclick="switchTab('debts')" role="tab" aria-selected="false" aria-controls="debts">💳 Долги</button>
             <button class="tab-btn" onclick="switchTab('settings')" role="tab" aria-selected="false" aria-controls="settings">⚙️ Настройки</button>
@@ -901,18 +58,124 @@
         
         <div id="expenses" class="tab-content">
             <div class="section">
-                <h2>Управление расходами</h2>
-                <div class="form-group">
-                    <label>Название группы расходов</label>
-                    <input type="text" id="expense-name" placeholder="Введите название группы">
-                </div>
-                <div class="form-group">
-                    <label>Цвет</label>
-                    <input type="color" id="expense-color" value="#3b82f6" style="height: 50px;">
-                </div>
-                <button class="btn btn-primary" onclick="addExpenseGroup()">+ Добавить группу</button>
+                <h2>💸 Управление расходами</h2>
                 
-                <div id="expense-groups-list" class="card-grid" style="margin-top: 30px;"></div>
+                <!-- Создание группы расходов -->
+                <div class="card white" style="margin-bottom: 20px; padding: 20px;">
+                    <h3 style="color: var(--primary); margin-bottom: 15px;">📁 Новая группа расходов</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Название группы</label>
+                            <input type="text" id="expense-group-name" placeholder="Продукты, Транспорт...">
+                        </div>
+                        <div class="form-group">
+                            <label>Цвет</label>
+                            <input type="color" id="expense-group-color" value="#007AFF" style="height: 50px;">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="addExpenseGroup()">+ Добавить группу</button>
+                </div>
+                
+                <!-- Список групп -->
+                <div id="expense-groups-list" class="card-grid" style="margin-top: 20px;"></div>
+                
+                <hr style="margin: 30px 0; border: none; border-top: 2px solid var(--gray-200);">
+                
+                <!-- Создание расхода -->
+                <div class="card white" style="margin-bottom: 20px; padding: 20px;">
+                    <h3 style="color: var(--success); margin-bottom: 15px;">💰 Новый расход</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Название расхода</label>
+                            <input type="text" id="expense-item-name" placeholder="Молоко, Бензин...">
+                        </div>
+                        <div class="form-group">
+                            <label>Сумма (₽)</label>
+                            <input type="number" id="expense-item-amount" placeholder="0" min="0" step="0.01">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Группа расходов</label>
+                            <select id="expense-item-group">
+                                <option value="">Без группы</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Период</label>
+                            <select id="expense-item-half">
+                                <option value="1">1-я половина месяца</option>
+                                <option value="2">2-я половина месяца</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Месяц</label>
+                            <select id="expense-item-month"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Год</label>
+                            <select id="expense-item-year"></select>
+                        </div>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="expense-item-recurring" style="width: auto;">
+                        <label for="expense-item-recurring" style="margin: 0; cursor: pointer;">Повторяющийся расход</label>
+                    </div>
+                    <button class="btn btn-success" onclick="addExpenseItem()">+ Добавить расход</button>
+                </div>
+                
+                <!-- Список расходов -->
+                <div id="expense-items-list" class="card-grid" style="margin-top: 20px;"></div>
+            </div>
+        </div>
+        
+        <div id="analytics" class="tab-content">
+            <div class="section">
+                <h2 style="display: flex; align-items: center; gap: 10px;">
+                    <span>📈</span>
+                    <span>Аналитика расходов</span>
+                </h2>
+                
+                <!-- Фильтры -->
+                <div class="card white" style="margin-bottom: 20px; padding: 20px; box-shadow: var(--shadow-md);">
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label style="font-weight: 500; color: var(--gray-700); margin-bottom: 8px; display: block;">Месяц</label>
+                            <select id="analytics-month" style="width: 100%; padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--gray-300); font-size: var(--font-size-base); background: var(--bg-primary); transition: var(--transition-fast);"></select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label style="font-weight: 500; color: var(--gray-700); margin-bottom: 8px; display: block;">Год</label>
+                            <select id="analytics-year" style="width: 100%; padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--gray-300); font-size: var(--font-size-base); background: var(--bg-primary); transition: var(--transition-fast);"></select>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="loadAnalytics()" style="margin-top: 16px; width: 100%; padding: 14px; font-size: var(--font-size-lg); font-weight: 600; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); transition: var(--transition-base);">
+                        🔄 Обновить данные
+                    </button>
+                </div>
+                
+                <!-- Общая сумма с градиентом Apple-style -->
+                <div class="card white" style="margin-bottom: 20px; padding: 24px; background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%); color: white; box-shadow: var(--shadow-lg); border: none;">
+                    <h3 style="margin-bottom: 12px; opacity: 0.95; font-weight: 600; font-size: var(--font-size-lg);">💰 Общие расходы за период</h3>
+                    <p class="amount" id="analytics-total" style="font-size: var(--font-size-4xl); font-weight: 700; letter-spacing: -1px; tabular-nums: tabular-nums;">₽ 0</p>
+                    <p style="opacity: 0.85; margin-top: 8px; font-weight: 500;" id="analytics-count">0 записей</p>
+                </div>
+                
+                <!-- Категории с улучшенным дизайном -->
+                <div class="card white" style="padding: 24px; box-shadow: var(--shadow-md);">
+                    <h3 style="margin-bottom: 20px; color: var(--gray-700); font-weight: 600; font-size: var(--font-size-xl); display: flex; align-items: center; gap: 8px;">
+                        <span>📊</span>
+                        <span>По категориям</span>
+                    </h3>
+                    <div id="analytics-categories" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div style="text-align: center; padding: 40px 20px; color: var(--gray-500);">
+                            <div style="font-size: 48px; margin-bottom: 12px; opacity: 0.5;">📊</div>
+                            <p style="font-weight: 500;">Нет данных для отображения</p>
+                            <p style="font-size: var(--font-size-sm); margin-top: 8px; opacity: 0.7;">Добавьте расходы или измените период</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -977,283 +240,6 @@
         </div>
     </div>
     
-    <script>
-        // ═══════════════════════════════════════════════════════════════
-        // STATE MANAGEMENT
-        // ═══════════════════════════════════════════════════════════════
-        
-        let state = {
-            settings: {
-                baseSalary: 100000,
-                taxRate: 13,
-                kef: 1.0,
-                advanceCutoffDay: 15,
-                standardHours: 40,
-                payoutDay1: 10,
-                payoutDay2: 25,
-                moveWeekendToFriday: false
-            },
-            expenseGroups: [],
-            debts: []
-        };
-        
-        const currentMonth = new Date().getMonth() + 1;
-        const currentYear = new Date().getFullYear();
-        
-        // ═══════════════════════════════════════════════════════════════
-        // API INTEGRATION
-        // ═══════════════════════════════════════════════════════════════
-        
-        async function apiCall(endpoint, options = {}) {
-            try {
-                const response = await fetch(`/api${endpoint}`, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...options.headers
-                    },
-                    ...options
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                return await response.json();
-            } catch (error) {
-                console.error('API Error:', error);
-                throw error;
-            }
-        }
-        
-        async function loadSettings() {
-            try {
-                const settings = await apiCall('/settings');
-                state.settings = settings;
-                updateSettingsUI();
-                updateBalanceUI();
-                showApiStatus(true);
-            } catch (error) {
-                console.warn('Failed to load settings, using defaults');
-                showApiStatus(false);
-            }
-        }
-        
-        async function loadExpenseGroups() {
-            try {
-                const groups = await apiCall('/expense-groups');
-                state.expenseGroups = groups;
-                renderExpenseGroups();
-            } catch (error) {
-                console.warn('Failed to load expense groups');
-            }
-        }
-        
-        async function loadDebts() {
-            try {
-                const debts = await apiCall('/debts');
-                state.debts = debts;
-                renderDebts();
-            } catch (error) {
-                console.warn('Failed to load debts');
-            }
-        }
-        
-        async function saveSettingsToAPI() {
-            try {
-                const updated = await apiCall('/settings', {
-                    method: 'PUT',
-                    body: JSON.stringify(state.settings)
-                });
-                state.settings = updated;
-                alert('✅ Настройки сохранены!');
-            } catch (error) {
-                alert('❌ Ошибка сохранения настроек');
-            }
-        }
-        
-        async function addExpenseGroupToAPI(name, color) {
-            try {
-                const group = await apiCall('/expense-groups', {
-                    method: 'POST',
-                    body: JSON.stringify({ name, color })
-                });
-                state.expenseGroups.push(group);
-                renderExpenseGroups();
-            } catch (error) {
-                alert('❌ Ошибка добавления группы');
-            }
-        }
-        
-        async function addDebtToAPI(title, amount) {
-            try {
-                const debt = await apiCall('/debts', {
-                    method: 'POST',
-                    body: JSON.stringify({ 
-                        title, 
-                        totalAmount: parseFloat(amount),
-                        month: currentMonth,
-                        year: currentYear
-                    })
-                });
-                state.debts.push(debt);
-                renderDebts();
-            } catch (error) {
-                alert('❌ Ошибка добавления долга');
-            }
-        }
-        
-        // ═══════════════════════════════════════════════════════════════
-        // UI FUNCTIONS
-        // ═══════════════════════════════════════════════════════════════
-        
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
-            document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
-        }
-        
-        function formatCurrency(amount) {
-            return new Intl.NumberFormat('ru-RU', {
-                style: 'currency',
-                currency: 'RUB',
-                minimumFractionDigits: 0
-            }).format(amount);
-        }
-        
-        function updateSettingsUI() {
-            document.getElementById('setting-base-salary').value = state.settings.baseSalary;
-            document.getElementById('setting-tax-rate').value = state.settings.taxRate;
-            document.getElementById('setting-kef').value = state.settings.kef;
-            document.getElementById('setting-cutoff-day').value = state.settings.advanceCutoffDay;
-            document.getElementById('setting-standard-hours').value = state.settings.standardHours;
-            document.getElementById('setting-payout-day1').value = state.settings.payoutDay1 || 10;
-            document.getElementById('setting-payout-day2').value = state.settings.payoutDay2 || 25;
-            document.getElementById('setting-move-weekend').checked = state.settings.moveWeekendToFriday || false;
-        }
-        
-        function updateBalanceUI() {
-            const base = state.settings.baseSalary;
-            const tax = state.settings.taxRate / 100;
-            const kef = state.settings.kef;
-            
-            const afterTax = base * (1 - tax);
-            const withKef = afterTax * kef;
-            
-            document.getElementById('base-salary').textContent = formatCurrency(withKef);
-            document.getElementById('first-payment').textContent = formatCurrency(withKef * 0.4);
-            document.getElementById('second-payment').textContent = formatCurrency(withKef * 0.6);
-            
-            const monthNames = [
-                '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-                'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
-            ];
-            document.getElementById('period-display').textContent = 
-                `Период: ${monthNames[currentMonth]} ${currentYear}`;
-        }
-        
-        function renderExpenseGroups() {
-            const container = document.getElementById('expense-groups-list');
-            if (state.expenseGroups.length === 0) {
-                container.innerHTML = '<p style="color: #666; grid-column: 1/-1;">Нет групп расходов</p>';
-                return;
-            }
-            
-            container.innerHTML = state.expenseGroups.map(group => `
-                <div class="card" style="border-left: 5px solid ${group.color}; background: white; color: #333;">
-                    <h3 style="color: ${group.color}">${group.name}</h3>
-                    <p>ID: ${group.id.substring(0, 8)}...</p>
-                </div>
-            `).join('');
-        }
-        
-        function renderDebts() {
-            const container = document.getElementById('debts-list');
-            if (state.debts.length === 0) {
-                container.innerHTML = '<p style="color: #666; grid-column: 1/-1;">Нет долгов</p>';
-                return;
-            }
-            
-            container.innerHTML = state.debts.map(debt => `
-                <div class="card orange" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                    <h3>${debt.title}</h3>
-                    <p class="amount">${formatCurrency(debt.totalAmount)}</p>
-                    <p style="margin-top: 10px; opacity: 0.8;">ID: ${debt.id.substring(0, 8)}...</p>
-                </div>
-            `).join('');
-        }
-        
-        function showApiStatus(connected) {
-            const indicator = document.getElementById('api-status-indicator');
-            if (connected) {
-                indicator.innerHTML = '<span class="status-badge">✅ API подключено</span>';
-            } else {
-                indicator.innerHTML = '<span class="status-badge" style="background: #f8d7da; color: #721c24;">⚠️ Режим офлайн</span>';
-            }
-        }
-        
-        // ═══════════════════════════════════════════════════════════════
-        // EVENT HANDLERS
-        // ═══════════════════════════════════════════════════════════════
-        
-        function addExpenseGroup() {
-            const name = document.getElementById('expense-name').value.trim();
-            const color = document.getElementById('expense-color').value;
-            
-            if (!name) {
-                alert('Введите название группы');
-                return;
-            }
-            
-            addExpenseGroupToAPI(name, color);
-            document.getElementById('expense-name').value = '';
-        }
-        
-        function addDebt() {
-            const title = document.getElementById('debt-title').value.trim();
-            const amount = document.getElementById('debt-amount').value;
-            
-            if (!title || !amount || parseFloat(amount) <= 0) {
-                alert('Введите корректное название и сумму');
-                return;
-            }
-            
-            addDebtToAPI(title, amount);
-            document.getElementById('debt-title').value = '';
-            document.getElementById('debt-amount').value = '';
-        }
-        
-        function saveSettings() {
-            state.settings.baseSalary = parseFloat(document.getElementById('setting-base-salary').value) || 0;
-            state.settings.taxRate = parseFloat(document.getElementById('setting-tax-rate').value) || 0;
-            state.settings.kef = parseFloat(document.getElementById('setting-kef').value) || 1;
-            state.settings.advanceCutoffDay = parseInt(document.getElementById('setting-cutoff-day').value) || 15;
-            state.settings.standardHours = parseInt(document.getElementById('setting-standard-hours').value) || 40;
-            state.settings.payoutDay1 = parseInt(document.getElementById('setting-payout-day1').value) || 10;
-            state.settings.payoutDay2 = parseInt(document.getElementById('setting-payout-day2').value) || 25;
-            state.settings.moveWeekendToFriday = document.getElementById('setting-move-weekend').checked;
-            
-            saveSettingsToAPI();
-            updateBalanceUI();
-        }
-        
-        // ═══════════════════════════════════════════════════════════════
-        // INITIALIZATION
-        // ═══════════════════════════════════════════════════════════════
-        
-        async function init() {
-            await loadSettings();
-            await loadExpenseGroups();
-            await loadDebts();
-            console.log('✅ Application initialized');
-        }
-        
-        init();
-    </script>
+    <script src="/static/js/app.js"></script>
 </body>
 </html>
