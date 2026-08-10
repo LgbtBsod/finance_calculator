@@ -70,6 +70,15 @@ class DatabaseManager:
         c = self._conn()
         try:
             c.executescript("""
+                -- Группы расходов (для категоризации)
+                CREATE TABLE IF NOT EXISTS expense_groups (
+                    id          TEXT    PRIMARY KEY,
+                    name        TEXT    NOT NULL,
+                    color       TEXT    NOT NULL,
+                    parent_id   TEXT,
+                    sort_order  INTEGER NOT NULL DEFAULT 0
+                );
+
                 -- Настройки (ключ-значение)
                 CREATE TABLE IF NOT EXISTS settings (
                     key   TEXT PRIMARY KEY,
@@ -107,7 +116,10 @@ class DatabaseManager:
                     half          INTEGER NOT NULL DEFAULT 1,
                     month         INTEGER NOT NULL,
                     year          INTEGER NOT NULL,
-                    is_recurring  INTEGER NOT NULL DEFAULT 0
+                    is_recurring  INTEGER NOT NULL DEFAULT 0,
+                    is_inclusive  INTEGER NOT NULL DEFAULT 0,
+                    group_id      TEXT,
+                    FOREIGN KEY (group_id) REFERENCES expense_groups(id)
                 );
 
                 -- Памятка (НЕ влияет на баланс)
@@ -123,6 +135,26 @@ class DatabaseManager:
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
                     total_amount REAL    NOT NULL DEFAULT 0.0,
                     payout_date  TEXT
+                );
+
+                -- Долги
+                CREATE TABLE IF NOT EXISTS debts (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title        TEXT    NOT NULL,
+                    total_amount REAL    NOT NULL DEFAULT 0.0,
+                    month        INTEGER NOT NULL,
+                    year         INTEGER NOT NULL,
+                    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+                );
+
+                -- Погашения долгов
+                CREATE TABLE IF NOT EXISTS debt_repayments (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    debt_id   INTEGER NOT NULL,
+                    amount    REAL    NOT NULL DEFAULT 0.0,
+                    date      TEXT    NOT NULL,
+                    note      TEXT,
+                    FOREIGN KEY (debt_id) REFERENCES debts(id) ON DELETE CASCADE
                 );
             """)
             c.commit()
@@ -142,6 +174,9 @@ class DatabaseManager:
             "advance_cutoff_day": str(settings.advance_cutoff_day),
             "is_advance_date_inclusive": str(settings.is_advance_date_inclusive).lower(),
             "account_shortened": str(settings.account_shortened).lower(),
+            "payout_day1": str(getattr(settings, 'payout_day1', 10)),
+            "payout_day2": str(getattr(settings, 'payout_day2', 25)),
+            "move_weekend_to_friday": str(getattr(settings, 'move_weekend_to_friday', False)).lower(),
         }
         for k, v in defaults.items():
             c.execute(
@@ -303,13 +338,15 @@ class DatabaseManager:
         month: int,
         year: int,
         is_recurring: bool = False,
+        is_inclusive: bool = False,
+        group_id: str | None = None,
     ) -> None:
         with self._transaction() as c:
             c.execute(
                 "INSERT INTO expenses "
-                "(name,amount,half,month,year,is_recurring) "
-                "VALUES (?,?,?,?,?,?)",
-                (name, amount, half, month, year, int(is_recurring)),
+                "(name,amount,half,month,year,is_recurring,is_inclusive,group_id) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (name, amount, half, month, year, int(is_recurring), int(is_inclusive), group_id),
             )
 
     def get_expenses(
@@ -320,13 +357,13 @@ class DatabaseManager:
         with self._transaction() as c:
             if month is not None and year is not None:
                 rows = c.execute(
-                    "SELECT id, name, amount, half, month, year, is_recurring "
+                    "SELECT id, name, amount, half, month, year, is_recurring, is_inclusive, group_id "
                     "FROM expenses WHERE month=? AND year=? ORDER BY half, id",
                     (month, year),
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, name, amount, half, month, year, is_recurring "
+                    "SELECT id, name, amount, half, month, year, is_recurring, is_inclusive, group_id "
                     "FROM expenses ORDER BY year, month, half, id"
                 ).fetchall()
             return [_expense_from_row(r) for r in rows]
@@ -412,6 +449,136 @@ class DatabaseManager:
     def delete_vacation(self, vid: int) -> None:
         with self._transaction() as c:
             c.execute("DELETE FROM vacations WHERE id=?", (vid,))
+
+    # ═════════════════════════════════════════════════════════
+    #  EXPENSE GROUPS
+    # ═════════════════════════════════════════════════════════
+
+    def create_expense_group(
+        self,
+        group_id: str,
+        name: str,
+        color: str,
+        parent_id: str | None = None,
+        sort_order: int = 0,
+    ) -> None:
+        with self._transaction() as c:
+            c.execute(
+                "INSERT INTO expense_groups (id, name, color, parent_id, sort_order) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (group_id, name, color, parent_id, sort_order),
+            )
+
+    def get_expense_groups(self) -> list[dict]:
+        with self._transaction() as c:
+            rows = c.execute(
+                "SELECT id, name, color, parent_id, sort_order "
+                "FROM expense_groups ORDER BY sort_order, name"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_expense_group(self, group_id: str) -> dict | None:
+        with self._transaction() as c:
+            row = c.execute(
+                "SELECT id, name, color, parent_id, sort_order "
+                "FROM expense_groups WHERE id=?",
+                (group_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def update_expense_group(
+        self,
+        group_id: str,
+        name: str | None = None,
+        color: str | None = None,
+        parent_id: str | None = None,
+        sort_order: int | None = None,
+    ) -> None:
+        with self._transaction() as c:
+            updates = []
+            values = []
+            if name is not None:
+                updates.append("name=?")
+                values.append(name)
+            if color is not None:
+                updates.append("color=?")
+                values.append(color)
+            if parent_id is not None:
+                updates.append("parent_id=?")
+                values.append(parent_id)
+            if sort_order is not None:
+                updates.append("sort_order=?")
+                values.append(sort_order)
+            if updates:
+                values.append(group_id)
+                c.execute(
+                    f"UPDATE expense_groups SET {', '.join(updates)} WHERE id=?",
+                    values,
+                )
+
+    def delete_expense_group(self, group_id: str) -> None:
+        with self._transaction() as c:
+            c.execute("DELETE FROM expense_groups WHERE id=?", (group_id,))
+
+    # ═════════════════════════════════════════════════════════
+    #  DEBTS
+    # ═════════════════════════════════════════════════════════
+
+    def create_debt(
+        self,
+        title: str,
+        total_amount: float,
+        month: int,
+        year: int,
+    ) -> int:
+        with self._transaction() as c:
+            cursor = c.execute(
+                "INSERT INTO debts (title, total_amount, month, year, created_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'))",
+                (title, total_amount, month, year),
+            )
+            return cursor.lastrowid
+
+    def get_debts(self) -> list[dict]:
+        with self._transaction() as c:
+            rows = c.execute(
+                "SELECT d.id, d.title, d.total_amount, d.month, d.year, d.created_at, "
+                "(SELECT COALESCE(SUM(r.amount), 0) FROM debt_repayments r WHERE r.debt_id = d.id) as repaid_amount "
+                "FROM debts d ORDER BY d.year, d.month, d.created_at"
+            ).fetchall()
+            debts = []
+            for row in rows:
+                debt = dict(row)
+                # Get repayments for this debt
+                repayments = c.execute(
+                    "SELECT id, debt_id, amount, date, note FROM debt_repayments WHERE debt_id=? ORDER BY date",
+                    (debt['id'],)
+                ).fetchall()
+                debt['repayments'] = [dict(r) for r in repayments]
+                debts.append(debt)
+            return debts
+
+    def delete_debt(self, debt_id: int) -> None:
+        with self._transaction() as c:
+            c.execute("DELETE FROM debts WHERE id=?", (debt_id,))
+
+    def add_debt_repayment(
+        self,
+        debt_id: int,
+        amount: float,
+        date: str,
+        note: str | None = None,
+    ) -> None:
+        with self._transaction() as c:
+            c.execute(
+                "INSERT INTO debt_repayments (debt_id, amount, date, note) "
+                "VALUES (?, ?, ?, ?)",
+                (debt_id, amount, date, note),
+            )
+
+    def delete_debt_repayment(self, repayment_id: int) -> None:
+        with self._transaction() as c:
+            c.execute("DELETE FROM debt_repayments WHERE id=?", (repayment_id,))
 
 
 # ── helper: правильно конвертировать sqlite3.Row -> ExpenseRow ──
