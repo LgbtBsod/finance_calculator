@@ -53,6 +53,13 @@ class ExpenseGroupCreate(BaseModel):
     parentId: str | None = None
 
 
+class ExpenseGroupUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    color: str | None = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    parentId: str | None = None
+    sortOrder: int | None = None
+
+
 class ExpenseGroupResponse(BaseModel):
     id: str
     name: str
@@ -61,13 +68,31 @@ class ExpenseGroupResponse(BaseModel):
     sortOrder: int = 0
 
 
+class ExpenseItemCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    amount: float = Field(..., gt=0)
+    half: int = Field(..., ge=1, le=2)
+    month: int = Field(..., ge=1, le=12)
+    year: int = Field(..., ge=2020, le=2100)
+    isRecurring: bool = Field(default=False)
+    groupId: str | None = None
+
+
+class ExpenseItemUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    amount: float | None = Field(None, gt=0)
+    half: int | None = Field(None, ge=1, le=2)
+    isRecurring: bool | None = None
+    groupId: str | None = None
+
+
 class ExpenseItemResponse(BaseModel):
     id: str
-    groupId: str
+    groupId: str | None = None
     name: str
     amount: float
-    date: str
-    isInclusive: bool
+    date: str | None = None
+    isInclusive: bool = False
     half: int
     isRecurring: bool
     month: int
@@ -105,10 +130,21 @@ class DebtResponse(BaseModel):
     year: int
 
 
+class VacationCreate(BaseModel):
+    totalAmount: float = Field(..., gt=0, description="Сумма отпускных")
+    payoutDate: str = Field(..., description="Дата выплаты в формате YYYY-MM-DD")
+
+
 class VacationResponse(BaseModel):
     id: str
     totalAmount: float
     payoutDate: str
+
+
+class BirthdayCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    birthDate: str = Field(..., description="Дата рождения в формате DD.MM.YYYY")
+    giftAmount: float = Field(..., gt=0, le=1000000)
 
 
 class BirthdayResponse(BaseModel):
@@ -186,6 +222,25 @@ async def create_expense_group(
     )
 
 
+@app.get("/api/expense-groups/{group_id}", response_model=ExpenseGroupResponse)
+async def get_expense_group(
+    group_id: str,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Получить группу расходов по ID."""
+    raise HTTPException(status_code=404, detail="Not implemented")
+
+
+@app.put("/api/expense-groups/{group_id}", response_model=ExpenseGroupResponse)
+async def update_expense_group(
+    group_id: str,
+    data: ExpenseGroupUpdate,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Обновить группу расходов."""
+    raise HTTPException(status_code=404, detail="Not implemented")
+
+
 @app.delete("/api/expense-groups/{group_id}", status_code=204)
 async def delete_expense_group(
     group_id: str,
@@ -226,33 +281,107 @@ async def get_expense_items(
 
 @app.post("/api/expense-items", response_model=ExpenseItemResponse, status_code=201)
 async def create_expense_item(
-    data: ExpenseDTO,
+    data: ExpenseItemCreate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Создать новый расход с валидацией через ExpenseDTO."""
+    """Создать новый расход с валидацией через ExpenseItemCreate."""
     db.add_expense(
         name=data.name,
         amount=data.amount,
         month=data.month,
         year=data.year,
         half=data.half,
-        is_recurring=data.is_recurring
+        is_recurring=data.isRecurring
     )
     # Возвращаем созданную запись
     expenses = db.get_expenses(month=data.month, year=data.year)
     last_expense = expenses[-1] if expenses else {}
     return ExpenseItemResponse(
         id=str(last_expense.get("id", uuid.uuid4())),
-        groupId="default",
+        groupId=data.groupId,
         name=data.name,
         amount=data.amount,
         date=date.today().isoformat(),
         isInclusive=False,
         half=data.half,
-        isRecurring=data.is_recurring,
+        isRecurring=data.isRecurring,
         month=data.month,
         year=data.year
     )
+
+
+@app.get("/api/expense-items/{item_id}", response_model=ExpenseItemResponse)
+async def get_expense_item(
+    item_id: str,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Получить расход по ID."""
+    try:
+        eid = int(item_id)
+        all_expenses = db.get_expenses()
+        for expense in all_expenses:
+            if expense["id"] == eid:
+                return ExpenseItemResponse(
+                    id=str(eid),
+                    groupId=None,
+                    name=expense["name"],
+                    amount=expense["amount"],
+                    date=None,
+                    isInclusive=False,
+                    half=expense["half"],
+                    isRecurring=expense["is_recurring"],
+                    month=expense["month"],
+                    year=expense["year"]
+                )
+    except (ValueError, Exception):
+        pass
+    raise HTTPException(status_code=404, detail="Expense item not found")
+
+
+@app.put("/api/expense-items/{item_id}", response_model=ExpenseItemResponse)
+async def update_expense_item(
+    item_id: str,
+    data: ExpenseItemUpdate,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Обновить расход."""
+    try:
+        eid = int(item_id)
+        # Получаем текущие данные
+        all_expenses = db.get_expenses()
+        current = None
+        for expense in all_expenses:
+            if expense["id"] == eid:
+                current = expense
+                break
+        
+        if not current:
+            raise HTTPException(status_code=404, detail="Expense item not found")
+        
+        # Обновляем поля
+        name = data.name if data.name is not None else current["name"]
+        amount = data.amount if data.amount is not None else current["amount"]
+        half = data.half if data.half is not None else current["half"]
+        is_recurring = data.isRecurring if data.isRecurring is not None else current["is_recurring"]
+        
+        db.update_expense(eid, name, amount, half, is_recurring)
+        
+        return ExpenseItemResponse(
+            id=str(eid),
+            groupId=data.groupId,
+            name=name,
+            amount=amount,
+            date=None,
+            isInclusive=False,
+            half=half,
+            isRecurring=is_recurring,
+            month=current["month"],
+            year=current["year"]
+        )
+    except HTTPException:
+        raise
+    except (ValueError, Exception) as e:
+        raise HTTPException(status_code=404, detail=f"Item not found: {e}")
 
 
 @app.delete("/api/expense-items/{item_id}", status_code=204)
@@ -293,20 +422,26 @@ async def get_vacations(
 
 @app.post("/api/vacations", response_model=VacationResponse, status_code=201)
 async def create_vacation(
-    data: VacationDTO,
+    data: VacationCreate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Создать новое начисление (отпускные) с валидацией через VacationDTO."""
+    """Создать новое начисление (отпускные) с валидацией через VacationCreate."""
+    # Validate date format
+    try:
+        date.fromisoformat(data.payoutDate)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD")
+    
     db.add_vacation(
-        total_amount=data.total_amount,
-        payout_date=data.payout_date
+        total_amount=data.totalAmount,
+        payout_date=data.payoutDate
     )
     vacations = db.get_vacations()
     last = vacations[-1] if vacations else {}
     return VacationResponse(
         id=str(last.get("id", uuid.uuid4())),
-        totalAmount=data.total_amount,
-        payoutDate=data.payout_date
+        totalAmount=data.totalAmount,
+        payoutDate=data.payoutDate
     )
 
 
@@ -345,22 +480,32 @@ async def get_birthdays(db: DatabaseManager = Depends(get_db)):
 
 @app.post("/api/birthdays", response_model=BirthdayResponse, status_code=201)
 async def create_birthday(
-    data: BirthdayDTO,
+    data: BirthdayCreate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Добавить день рождения с валидацией через BirthdayDTO."""
+    """Добавить день рождения с валидацией через BirthdayCreate."""
+    # Validate date format DD.MM.YYYY
+    try:
+        parts = data.birthDate.strip().split(".")
+        if len(parts) != 3:
+            raise ValueError()
+        day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+        date(year, month, day)
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте DD.MM.YYYY")
+    
     db.add_birthday(
         name=data.name,
-        birth_date=data.birth_date,
-        gift_amount=data.gift_amount
+        birth_date=data.birthDate,
+        gift_amount=data.giftAmount
     )
     birthdays = db.get_birthdays()
     last = birthdays[-1] if birthdays else {}
     return BirthdayResponse(
         id=str(last.get("id", uuid.uuid4())),
         name=data.name,
-        birthDate=data.birth_date,
-        giftAmount=data.gift_amount
+        birthDate=data.birthDate,
+        giftAmount=data.giftAmount
     )
 
 
