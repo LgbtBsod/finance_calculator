@@ -48,6 +48,16 @@ class DatabaseManager:
             self._conn_cache = c
         return c
 
+    def close(self) -> None:
+        """Закрыть соединение с базой данных и освободить ресурсы."""
+        if self._conn_cache is not None:
+            try:
+                self._conn_cache.close()
+            except Exception:
+                pass
+            finally:
+                self._conn_cache = None
+
     @contextmanager
     def _transaction(self) -> Generator[sqlite3.Connection, None, None]:
         c = self._conn()
@@ -375,16 +385,34 @@ class DatabaseManager:
     def update_expense(
         self,
         eid: int,
-        name: str,
-        amount: float,
-        half: int,
-        is_recurring: bool,
+        name: str | None = None,
+        amount: float | None = None,
+        half: int | None = None,
+        is_recurring: bool | None = None,
+        group_id: str | None = None,
     ) -> None:
+        """Обновить расход с частичным обновлением полей (PATCH semantics)."""
         with self._transaction() as c:
+            # Получаем текущие значения
+            current = c.execute(
+                "SELECT name, amount, half, is_recurring, group_id FROM expenses WHERE id=?",
+                (eid,)
+            ).fetchone()
+            
+            if not current:
+                raise ValueError(f"Expense with id {eid} not found")
+            
+            # Используем новые значения или оставляем старые
+            new_name = name if name is not None else current["name"]
+            new_amount = amount if amount is not None else current["amount"]
+            new_half = half if half is not None else current["half"]
+            new_is_recurring = is_recurring if is_recurring is not None else bool(current["is_recurring"])
+            new_group_id = group_id if group_id is not None else current["group_id"]
+            
             c.execute(
-                "UPDATE expenses SET name=?, amount=?, half=?, is_recurring=? "
+                "UPDATE expenses SET name=?, amount=?, half=?, is_recurring=?, group_id=? "
                 "WHERE id=?",
-                (name, amount, half, int(is_recurring), eid),
+                (new_name, new_amount, new_half, int(new_is_recurring), new_group_id, eid),
             )
 
     # ═════════════════════════════════════════════════════════
@@ -588,4 +616,7 @@ def _expense_from_row(r: sqlite3.Row) -> ExpenseRow:
     """sqlite3.Row → ExpenseRow с корректным типом is_recurring (bool)."""
     d = dict(r)
     d["is_recurring"] = bool(d["is_recurring"])
+    # Убеждаемся, что group_id присутствует
+    if "group_id" not in d:
+        d["group_id"] = None
     return ExpenseRow(**d)

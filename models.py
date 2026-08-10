@@ -163,6 +163,7 @@ class ExpenseRow(TypedDict):
     month: int
     year: int
     is_recurring: bool
+    group_id: str | None
 
 
 class BirthdayRow(TypedDict):

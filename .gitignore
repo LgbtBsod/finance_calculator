@@ -7,22 +7,36 @@ __pycache__/
 
 # Database
 *.db
+*.sqlite
+*.sqlite3
 
-# Logs and temp files
+# Logs
 *.log
-*.tmp
 
 # Environment
 .env
 .env.local
-*.env.*
+.env.*
 
-# Editors
+# Dependencies
+.venv/
+venv/
+pip-log.txt
+pipenv.lock
+
+# Coverage reports
+.coverage
+htmlcov/
+.coverage.*
+.coverage.xml
+
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
 ```
-/node_modules

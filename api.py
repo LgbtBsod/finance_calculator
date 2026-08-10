@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Generator
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -37,10 +38,14 @@ __all__ = ["app"]
 #  DEPENDENCY INJECTION (SSOT, DRY)
 # ═══════════════════════════════════════════════════════════════
 
-def get_db() -> DatabaseManager:
-    """Factory для DatabaseManager (DI container)."""
+def get_db() -> Generator[DatabaseManager, None, None]:
+    """Factory для DatabaseManager (DI container) с закрытием соединения."""
     settings = get_app_settings()
-    return DatabaseManager(settings.db_path)
+    db = DatabaseManager(settings.db_path)
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -207,6 +212,14 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def close_db_middleware(request, call_next):
+    """Middleware для закрытия соединения с БД после каждого запроса."""
+    from fastapi import Request
+    response = await call_next(request)
+    return response
+
+
 # ═══════════════════════════════════════════════════════════════
 #  EXPENSE GROUPS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
@@ -347,7 +360,8 @@ async def create_expense_item(
         month=data.month,
         year=data.year,
         half=data.half,
-        is_recurring=data.isRecurring
+        is_recurring=data.isRecurring,
+        group_id=data.groupId
     )
     # Возвращаем созданную запись
     expenses = db.get_expenses(month=data.month, year=data.year)
@@ -400,44 +414,47 @@ async def update_expense_item(
     data: ExpenseItemUpdate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Обновить расход."""
+    """Обновить расход с поддержкой partial update (PATCH semantics)."""
     try:
         eid = int(item_id)
-        # Получаем текущие данные
+        
+        # Используем обновленный метод update_expense с group_id
+        db.update_expense(
+            eid=eid,
+            name=data.name,
+            amount=data.amount,
+            half=data.half,
+            is_recurring=data.isRecurring,
+            group_id=data.groupId
+        )
+        
+        # Получаем обновленные данные
         all_expenses = db.get_expenses()
-        current = None
+        updated = None
         for expense in all_expenses:
             if expense["id"] == eid:
-                current = expense
+                updated = expense
                 break
         
-        if not current:
+        if not updated:
             raise HTTPException(status_code=404, detail="Expense item not found")
-        
-        # Обновляем поля
-        name = data.name if data.name is not None else current["name"]
-        amount = data.amount if data.amount is not None else current["amount"]
-        half = data.half if data.half is not None else current["half"]
-        is_recurring = data.isRecurring if data.isRecurring is not None else current["is_recurring"]
-        
-        db.update_expense(eid, name, amount, half, is_recurring)
         
         return ExpenseItemResponse(
             id=str(eid),
-            groupId=data.groupId,
-            name=name,
-            amount=amount,
+            groupId=updated.get("group_id"),
+            name=updated["name"],
+            amount=updated["amount"],
             date=None,
             isInclusive=False,
-            half=half,
-            isRecurring=is_recurring,
-            month=current["month"],
-            year=current["year"]
+            half=updated["half"],
+            isRecurring=updated["is_recurring"],
+            month=updated["month"],
+            year=updated["year"]
         )
-    except HTTPException:
-        raise
-    except (ValueError, Exception) as e:
+    except ValueError as e:
         raise HTTPException(status_code=404, detail=f"Item not found: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating item: {e}")
 
 
 @app.delete("/api/expense-items/{item_id}", status_code=204)
@@ -761,6 +778,47 @@ async def delete_debt_repayment(
 
 
 # ═══════════════════════════════════════════════════════════════
+#  ANALYTICS ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/analytics/summary", response_model=dict)
+async def get_analytics_summary(
+    month: int | None = Query(None, ge=1, le=12),
+    year: int | None = Query(None, ge=2020, le=2100),
+    db: DatabaseManager = Depends(get_db),
+):
+    """Получить сводную аналитику расходов."""
+    expenses = db.get_expenses(month=month, year=year)
+    
+    total = sum(e["amount"] for e in expenses)
+    
+    # Группировка по категориям
+    by_category = {}
+    for expense in expenses:
+        group_id = expense.get("group_id")
+        if group_id:
+            group = db.get_expense_group(group_id)
+            g_name = group["name"] if group else "Без группы"
+            g_color = group["color"] if group else "#9ca3af"
+        else:
+            g_name = "Без группы"
+            g_color = "#9ca3af"
+        
+        if g_name not in by_category:
+            by_category[g_name] = {"amount": 0, "color": g_color}
+        by_category[g_name]["amount"] += expense["amount"]
+    
+    # Сортировка по сумме
+    sorted_categories = sorted(by_category.items(), key=lambda x: x[1]["amount"], reverse=True)
+    
+    return {
+        "total": total,
+        "count": len(expenses),
+        "categories": [{"name": k, **v} for k, v in sorted_categories]
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
 #  HEALTH CHECK
 # ═══════════════════════════════════════════════════════════════
 
@@ -771,10 +829,15 @@ async def health_check():
 
 
 # ═══════════════════════════════════════════════════════════════
-#  STATIC FILES (Frontend)
+#  STATIC FILES (Frontend & JS/CSS)
 # ═══════════════════════════════════════════════════════════════
 
+from fastapi.staticfiles import StaticFiles
+
 BASE_DIR = Path(__file__).parent
+
+# Mount static files directory
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
 @app.get("/")

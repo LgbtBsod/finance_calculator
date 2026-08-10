@@ -412,6 +412,8 @@ class PDFParser:
 | **ISP** | ✅ | 5 раздельных Protocol вместо одного "толстого" интерфейса |
 | **DIP** | ✅ | SalaryCalculator зависит от Protocol, не от DatabaseManager |
 | **DRY** | ✅ | Дефолты определены только в AppSettings, DI container для DB |
+| **Порт освобождается** | ✅ | Dependency injection закрывает соединения после запроса |
+| **Разделение слоёв** | ✅ | HTML (245 строк), CSS (519 строк), JS (687 строк) |
 
 ---
 
