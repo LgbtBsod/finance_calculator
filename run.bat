@@ -61,6 +61,6 @@ timeout /t 2 /nobreak >nul
 start http://localhost:8000
 
 REM Start FastAPI backend with api.py (includes frontend serving)
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 
 pause
