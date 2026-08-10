@@ -1,4 +1,35 @@
-streamlit>=1.30.0
-pandas>=2.0.0
-work-calendar>=1.1
-pdfplumber>=0.10.0  # optional: PDF parser for calendar corrections
+# Core dependencies
+streamlit>=1.40.0,<2.0.0
+pandas>=2.2.0,<3.0.0
+work-calendar>=1.1.0,<2.0.0
+
+# API Framework
+fastapi>=0.115.0,<1.0.0     # Modern API framework
+uvicorn[standard]>=0.32.0   # ASGI server for FastAPI
+
+# Optional: PDF parser for calendar corrections
+pdfplumber>=0.11.0,<1.0.0
+
+# Data export
+openpyxl>=3.1.0,<4.0.0      # Excel export/import
+xlsxwriter>=3.2.0,<4.0.0    # Enhanced Excel formatting
+
+# Visualization enhancements
+plotly>=5.24.0,<6.0.0       # Interactive charts
+kaleido>=0.2.1              # Static image export for Plotly
+
+# Performance & caching
+cachetools>=5.5.0,<6.0.0    # Advanced caching strategies
+
+# Type hints & validation
+typing-extensions>=4.12.0   # Backported type hints
+
+# Utilities
+python-dateutil>=2.9.0      # Date utilities
+pydantic>=2.10.0,<3.0.0     # Data validation (optional)
+
+# Development (optional)
+# pytest>=8.3.0             # Testing
+# black>=24.10.0            # Code formatting
+# ruff>=0.8.0               # Linting
+# mypy>=1.13.0              # Type checking
