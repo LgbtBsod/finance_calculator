@@ -176,6 +176,9 @@ class SalarySettingsResponse(BaseModel):
     payoutDay1: int = 10
     payoutDay2: int = 25
     moveWeekendToFriday: bool = False
+    salaryCalculationMethod: str = "proportional"
+    firstHalfRatio: float = 0.4
+    secondHalfRatio: float = 0.6
 
 
 class SalarySettingsUpdate(BaseModel):
@@ -189,6 +192,9 @@ class SalarySettingsUpdate(BaseModel):
     payoutDay1: int | None = None
     payoutDay2: int | None = None
     moveWeekendToFriday: bool | None = None
+    salaryCalculationMethod: str | None = None
+    firstHalfRatio: float | None = None
+    secondHalfRatio: float | None = None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -246,9 +252,11 @@ async def create_expense_group(
     db: DatabaseManager = Depends(get_db),
 ):
     """Создать новую группу расходов."""
-    group_id = data.parentId or str(uuid.uuid4())
-    if not data.parentId:
-        group_id = str(uuid.uuid4())
+    match data.parentId:
+        case None:
+            group_id = str(uuid.uuid4())
+        case pid:
+            group_id = pid
     db.create_expense_group(
         group_id=group_id,
         name=data.name,
@@ -272,15 +280,17 @@ async def get_expense_group(
 ):
     """Получить группу расходов по ID."""
     group = db.get_expense_group(group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-    return ExpenseGroupResponse(
-        id=group["id"],
-        name=group["name"],
-        color=group["color"],
-        parentId=group["parent_id"],
-        sortOrder=group["sort_order"]
-    )
+    match group:
+        case None:
+            raise HTTPException(status_code=404, detail="Group not found")
+        case g:
+            return ExpenseGroupResponse(
+                id=g["id"],
+                name=g["name"],
+                color=g["color"],
+                parentId=g["parent_id"],
+                sortOrder=g["sort_order"]
+            )
 
 
 @app.put("/api/expense-groups/{group_id}", response_model=ExpenseGroupResponse)
@@ -298,15 +308,17 @@ async def update_expense_group(
         sort_order=data.sortOrder
     )
     group = db.get_expense_group(group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-    return ExpenseGroupResponse(
-        id=group["id"],
-        name=group["name"],
-        color=group["color"],
-        parentId=group["parent_id"],
-        sortOrder=group["sort_order"]
-    )
+    match group:
+        case None:
+            raise HTTPException(status_code=404, detail="Group not found")
+        case g:
+            return ExpenseGroupResponse(
+                id=g["id"],
+                name=g["name"],
+                color=g["color"],
+                parentId=g["parent_id"],
+                sortOrder=g["sort_order"]
+            )
 
 
 @app.delete("/api/expense-groups/{group_id}", status_code=204)
@@ -390,19 +402,22 @@ async def get_expense_item(
         eid = int(item_id)
         all_expenses = db.get_expenses()
         for expense in all_expenses:
-            if expense["id"] == eid:
-                return ExpenseItemResponse(
-                    id=str(eid),
-                    groupId=None,
-                    name=expense["name"],
-                    amount=expense["amount"],
-                    date=None,
-                    isInclusive=False,
-                    half=expense["half"],
-                    isRecurring=expense["is_recurring"],
-                    month=expense["month"],
-                    year=expense["year"]
-                )
+            match expense["id"] == eid:
+                case True:
+                    return ExpenseItemResponse(
+                        id=str(eid),
+                        groupId=None,
+                        name=expense["name"],
+                        amount=expense["amount"],
+                        date=None,
+                        isInclusive=False,
+                        half=expense["half"],
+                        isRecurring=expense["is_recurring"],
+                        month=expense["month"],
+                        year=expense["year"]
+                    )
+                case False:
+                    pass
     except (ValueError, Exception):
         pass
     raise HTTPException(status_code=404, detail="Expense item not found")
@@ -432,25 +447,29 @@ async def update_expense_item(
         all_expenses = db.get_expenses()
         updated = None
         for expense in all_expenses:
-            if expense["id"] == eid:
-                updated = expense
-                break
+            match expense["id"] == eid:
+                case True:
+                    updated = expense
+                    break
+                case False:
+                    pass
         
-        if not updated:
-            raise HTTPException(status_code=404, detail="Expense item not found")
-        
-        return ExpenseItemResponse(
-            id=str(eid),
-            groupId=updated.get("group_id"),
-            name=updated["name"],
-            amount=updated["amount"],
-            date=None,
-            isInclusive=False,
-            half=updated["half"],
-            isRecurring=updated["is_recurring"],
-            month=updated["month"],
-            year=updated["year"]
-        )
+        match updated:
+            case None:
+                raise HTTPException(status_code=404, detail="Expense item not found")
+            case u:
+                return ExpenseItemResponse(
+                    id=str(eid),
+                    groupId=u.get("group_id"),
+                    name=u["name"],
+                    amount=u["amount"],
+                    date=None,
+                    isInclusive=False,
+                    half=u["half"],
+                    isRecurring=u["is_recurring"],
+                    month=u["month"],
+                    year=u["year"]
+                )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=f"Item not found: {e}")
     except Exception as e:
@@ -510,7 +529,11 @@ async def create_vacation(
         payout_date=data.payoutDate
     )
     vacations = db.get_vacations()
-    last = vacations[-1] if vacations else {}
+    match vacations:
+        case []:
+            last = {}
+        case v_list:
+            last = v_list[-1]
     return VacationResponse(
         id=str(last.get("id", uuid.uuid4())),
         totalAmount=data.totalAmount,
@@ -560,10 +583,12 @@ async def create_birthday(
     # Validate date format DD.MM.YYYY
     try:
         parts = data.birthDate.strip().split(".")
-        if len(parts) != 3:
-            raise ValueError()
-        day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
-        date(year, month, day)
+        match len(parts):
+            case 3:
+                day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+                date(year, month, day)
+            case _:
+                raise ValueError()
     except (ValueError, IndexError):
         raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте DD.MM.YYYY")
     
@@ -573,7 +598,11 @@ async def create_birthday(
         gift_amount=data.giftAmount
     )
     birthdays = db.get_birthdays()
-    last = birthdays[-1] if birthdays else {}
+    match birthdays:
+        case []:
+            last = {}
+        case b_list:
+            last = b_list[-1]
     return BirthdayResponse(
         id=str(last.get("id", uuid.uuid4())),
         name=data.name,
@@ -613,7 +642,10 @@ async def get_settings(db: DatabaseManager = Depends(get_db)):
         standardHours=int(db.get_setting("standard_hours") or "40"),
         payoutDay1=int(db.get_setting("payout_day1") or "10"),
         payoutDay2=int(db.get_setting("payout_day2") or "25"),
-        moveWeekendToFriday=db.get_setting("move_weekend_to_friday") == "true"
+        moveWeekendToFriday=db.get_setting("move_weekend_to_friday") == "true",
+        salaryCalculationMethod=db.get_setting("salary_calculation_method") or "proportional",
+        firstHalfRatio=float(db.get_setting("first_half_ratio") or "0.4"),
+        secondHalfRatio=float(db.get_setting("second_half_ratio") or "0.6"),
     )
 
 
@@ -623,26 +655,71 @@ async def update_settings(
     db: DatabaseManager = Depends(get_db),
 ):
     """Обновить настройки зарплаты."""
-    if updates.baseSalary is not None:
-        db.set_setting("base_salary", str(updates.baseSalary))
-    if updates.taxRate is not None:
-        db.set_setting("tax_rate", str(updates.taxRate))
-    if updates.kef is not None:
-        db.set_setting("kef", str(updates.kef))
-    if updates.advanceCutoffDay is not None:
-        db.set_setting("advance_cutoff_day", str(updates.advanceCutoffDay))
-    if updates.isAdvanceDateInclusive is not None:
-        db.set_setting("is_advance_date_inclusive", str(updates.isAdvanceDateInclusive).lower())
-    if updates.accountShortened is not None:
-        db.set_setting("account_shortened", str(updates.accountShortened).lower())
-    if updates.standardHours is not None:
-        db.set_setting("standard_hours", str(updates.standardHours))
-    if updates.payoutDay1 is not None:
-        db.set_setting("payout_day1", str(updates.payoutDay1))
-    if updates.payoutDay2 is not None:
-        db.set_setting("payout_day2", str(updates.payoutDay2))
-    if updates.moveWeekendToFriday is not None:
-        db.set_setting("move_weekend_to_friday", str(updates.moveWeekendToFriday).lower())
+    match updates:
+        case SalarySettingsUpdate(baseSalary=b) if b is not None:
+            db.set_setting("base_salary", str(b))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(taxRate=t) if t is not None:
+            db.set_setting("tax_rate", str(t))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(kef=k) if k is not None:
+            db.set_setting("kef", str(k))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(advanceCutoffDay=a) if a is not None:
+            db.set_setting("advance_cutoff_day", str(a))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(isAdvanceDateInclusive=i) if i is not None:
+            db.set_setting("is_advance_date_inclusive", str(i).lower())
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(accountShortened=a) if a is not None:
+            db.set_setting("account_shortened", str(a).lower())
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(standardHours=s) if s is not None:
+            db.set_setting("standard_hours", str(s))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(payoutDay1=p) if p is not None:
+            db.set_setting("payout_day1", str(p))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(payoutDay2=p) if p is not None:
+            db.set_setting("payout_day2", str(p))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(moveWeekendToFriday=m) if m is not None:
+            db.set_setting("move_weekend_to_friday", str(m).lower())
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(salaryCalculationMethod=m) if m is not None:
+            db.set_setting("salary_calculation_method", m)
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(firstHalfRatio=r) if r is not None:
+            db.set_setting("first_half_ratio", str(r))
+        case _:
+            pass
+    match updates:
+        case SalarySettingsUpdate(secondHalfRatio=r) if r is not None:
+            db.set_setting("second_half_ratio", str(r))
+        case _:
+            pass
     
     return await get_settings(db)
 
@@ -693,27 +770,28 @@ async def create_debt(
     # Fetch the created debt
     debts = db.get_debts()
     created_debt = next((d for d in debts if str(d["id"]) == str(debt_id)), None)
-    if not created_debt:
-        raise HTTPException(status_code=500, detail="Failed to fetch created debt")
-    
-    return DebtResponse(
-        id=str(created_debt["id"]),
-        title=created_debt["title"],
-        totalAmount=created_debt["total_amount"],
-        repayments=[
-            RepaymentResponse(
-                id=str(r["id"]),
-                debtId=str(r["debt_id"]),
-                amount=r["amount"],
-                date=r["date"],
-                note=r["note"]
+    match created_debt:
+        case None:
+            raise HTTPException(status_code=500, detail="Failed to fetch created debt")
+        case debt:
+            return DebtResponse(
+                id=str(debt["id"]),
+                title=debt["title"],
+                totalAmount=debt["total_amount"],
+                repayments=[
+                    RepaymentResponse(
+                        id=str(r["id"]),
+                        debtId=str(r["debt_id"]),
+                        amount=r["amount"],
+                        date=r["date"],
+                        note=r["note"]
+                    )
+                    for r in debt.get("repayments", [])
+                ],
+                createdAt=debt["created_at"],
+                month=debt["month"],
+                year=debt["year"]
             )
-            for r in created_debt.get("repayments", [])
-        ],
-        createdAt=created_debt["created_at"],
-        month=created_debt["month"],
-        year=created_debt["year"]
-    )
 
 
 @app.delete("/api/debts/{debt_id}", status_code=204)
@@ -793,19 +871,23 @@ async def get_analytics_summary(
     total = sum(e["amount"] for e in expenses)
     
     # Группировка по категориям
-    by_category = {}
+    by_category: dict[str, dict] = {}
     for expense in expenses:
         group_id = expense.get("group_id")
-        if group_id:
-            group = db.get_expense_group(group_id)
-            g_name = group["name"] if group else "Без группы"
-            g_color = group["color"] if group else "#9ca3af"
-        else:
-            g_name = "Без группы"
-            g_color = "#9ca3af"
+        match group_id:
+            case None:
+                g_name = "Без группы"
+                g_color = "#9ca3af"
+            case gid:
+                group = db.get_expense_group(gid)
+                g_name = group["name"] if group else "Без группы"
+                g_color = group["color"] if group else "#9ca3af"
         
-        if g_name not in by_category:
-            by_category[g_name] = {"amount": 0, "color": g_color}
+        match g_name in by_category:
+            case False:
+                by_category[g_name] = {"amount": 0, "color": g_color}
+            case _:
+                pass
         by_category[g_name]["amount"] += expense["amount"]
     
     # Сортировка по сумме

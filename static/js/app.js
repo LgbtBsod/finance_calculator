@@ -21,7 +21,8 @@
             standardHours: 40,
             payoutDay1: 10,
             payoutDay2: 25,
-            moveWeekendToFriday: false
+            moveWeekendToFriday: false,
+            salaryCalculationMethod: 'proportional'
         },
         expenseGroups: [],
         expenseItems: [],
@@ -350,6 +351,12 @@
         if (moveWeekendEl) {
             moveWeekendEl.checked = settings.moveWeekendToFriday || false;
         }
+        
+        // Update salary calculation method select if exists
+        const methodSelect = document.getElementById('setting-salary-method');
+        if (methodSelect && settings.salaryCalculationMethod) {
+            methodSelect.value = settings.salaryCalculationMethod;
+        }
     }
 
     function updateBalanceUI() {
@@ -638,6 +645,12 @@
         const moveWeekendEl = document.getElementById('setting-move-weekend');
         if (moveWeekendEl) {
             state.settings.moveWeekendToFriday = moveWeekendEl.checked;
+        }
+        
+        // Save salary calculation method
+        const methodSelect = document.getElementById('setting-salary-method');
+        if (methodSelect) {
+            state.settings.salaryCalculationMethod = methodSelect.value || 'proportional';
         }
 
         saveSettingsToAPI();
