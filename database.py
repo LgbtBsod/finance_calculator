@@ -22,6 +22,10 @@ from models import (
 
 __all__ = ["DatabaseManager"]
 
+# Сентинел для трёхзначных PATCH-полей: отличает "аргумент не передан"
+# (оставить как есть) от "передан явный None" (очистить значение в БД).
+_UNSET = object()
+
 
 class DatabaseManager:
     """Управляет всеми операциями с SQLite.
@@ -185,13 +189,21 @@ class DatabaseManager:
         `CREATE TABLE IF NOT EXISTS` не добавляет колонки к уже существующей
         таблице, поэтому недостающие столбцы добавляем явно (идемпотентно).
         """
-        existing_cols = {
+        vacation_cols = {
             row["name"]
             for row in c.execute("PRAGMA table_info(vacations)").fetchall()
         }
         for column in ("start_date", "end_date"):
-            if column not in existing_cols:
+            if column not in vacation_cols:
                 c.execute(f"ALTER TABLE vacations ADD COLUMN {column} TEXT")
+
+        expense_cols = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(expenses)").fetchall()
+        }
+        if "recurring_until" not in expense_cols:
+            c.execute("ALTER TABLE expenses ADD COLUMN recurring_until TEXT")
+
         c.commit()
 
     def _seed_defaults(self, c: sqlite3.Connection) -> None:
@@ -374,13 +386,17 @@ class DatabaseManager:
         is_recurring: bool = False,
         is_inclusive: bool = False,
         group_id: str | None = None,
+        recurring_until: str | None = None,
     ) -> None:
         with self._transaction() as c:
             c.execute(
                 "INSERT INTO expenses "
-                "(name,amount,half,month,year,is_recurring,is_inclusive,group_id) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (name, amount, half, month, year, int(is_recurring), int(is_inclusive), group_id),
+                "(name,amount,half,month,year,is_recurring,is_inclusive,group_id,recurring_until) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    name, amount, half, month, year,
+                    int(is_recurring), int(is_inclusive), group_id, recurring_until,
+                ),
             )
 
     def get_expenses(
@@ -388,18 +404,52 @@ class DatabaseManager:
         month: int | None = None,
         year: int | None = None,
     ) -> list[ExpenseRow]:
+        """Расходы за период.
+
+        Без month/year — сырые строки как они есть в БД (используется
+        режимом "за все периоды" в UI).
+
+        С month/year — точное совпадение периода ПЛЮС спроецированные
+        повторяющиеся расходы, чей период создания раньше запрошенного:
+        повторяющийся расход не переносится в БД копией на каждый месяц,
+        а автоматически "продолжается" вперёд, пока не наступит месяц
+        recurring_until (включительно) — после него проекция прекращается.
+        У спроецированных строк month/year в ответе подменяются на
+        запрошенный период (см. _expense_from_row) — иначе карточка расхода
+        показывала бы месяц своего создания, а не месяц, на который она
+        сейчас распространяется.
+        """
         with self._transaction() as c:
             if month is not None and year is not None:
                 rows = c.execute(
-                    "SELECT id, name, amount, half, month, year, is_recurring, is_inclusive, group_id "
-                    "FROM expenses WHERE month=? AND year=? ORDER BY half, id",
-                    (month, year),
+                    """
+                    SELECT id, name, amount, half, month, year,
+                           is_recurring, is_inclusive, group_id, recurring_until
+                    FROM expenses
+                    WHERE (month = :month AND year = :year)
+                       OR (
+                            is_recurring = 1
+                            AND (year < :year OR (year = :year AND month < :month))
+                            AND (
+                                recurring_until IS NULL
+                                OR CAST(strftime('%Y', recurring_until) AS INTEGER) > :year
+                                OR (
+                                    CAST(strftime('%Y', recurring_until) AS INTEGER) = :year
+                                    AND CAST(strftime('%m', recurring_until) AS INTEGER) >= :month
+                                )
+                            )
+                          )
+                    ORDER BY half, id
+                    """,
+                    {"month": month, "year": year},
                 ).fetchall()
-            else:
-                rows = c.execute(
-                    "SELECT id, name, amount, half, month, year, is_recurring, is_inclusive, group_id "
-                    "FROM expenses ORDER BY year, month, half, id"
-                ).fetchall()
+                return [_expense_from_row(r, view_month=month, view_year=year) for r in rows]
+
+            rows = c.execute(
+                "SELECT id, name, amount, half, month, year, "
+                "is_recurring, is_inclusive, group_id, recurring_until "
+                "FROM expenses ORDER BY year, month, half, id"
+            ).fetchall()
             return [_expense_from_row(r) for r in rows]
 
     def delete_expense(self, eid: int) -> None:
@@ -414,29 +464,43 @@ class DatabaseManager:
         half: int | None = None,
         is_recurring: bool | None = None,
         group_id: str | None = None,
+        recurring_until: str | None | object = _UNSET,
     ) -> None:
-        """Обновить расход с частичным обновлением полей (PATCH semantics)."""
+        """Обновить расход с частичным обновлением полей (PATCH semantics).
+
+        recurring_until — трёхзначное поле: значение по умолчанию `_UNSET`
+        означает "не менять", а явно переданный `None` — "снять дату
+        завершения повторения" (отличить "не передали" от "передали пустое"
+        обычным None-дефолтом здесь нельзя, т.к. очистка даты — тоже None).
+        """
         with self._transaction() as c:
             # Получаем текущие значения
             current = c.execute(
-                "SELECT name, amount, half, is_recurring, group_id FROM expenses WHERE id=?",
+                "SELECT name, amount, half, is_recurring, group_id, recurring_until "
+                "FROM expenses WHERE id=?",
                 (eid,)
             ).fetchone()
-            
+
             if not current:
                 raise ValueError(f"Expense with id {eid} not found")
-            
+
             # Используем новые значения или оставляем старые
             new_name = name if name is not None else current["name"]
             new_amount = amount if amount is not None else current["amount"]
             new_half = half if half is not None else current["half"]
             new_is_recurring = is_recurring if is_recurring is not None else bool(current["is_recurring"])
             new_group_id = group_id if group_id is not None else current["group_id"]
-            
+            new_recurring_until = (
+                current["recurring_until"] if recurring_until is _UNSET else recurring_until
+            )
+
             c.execute(
-                "UPDATE expenses SET name=?, amount=?, half=?, is_recurring=?, group_id=? "
-                "WHERE id=?",
-                (new_name, new_amount, new_half, int(new_is_recurring), new_group_id, eid),
+                "UPDATE expenses SET name=?, amount=?, half=?, is_recurring=?, "
+                "group_id=?, recurring_until=? WHERE id=?",
+                (
+                    new_name, new_amount, new_half, int(new_is_recurring),
+                    new_group_id, new_recurring_until, eid,
+                ),
             )
 
     # ═════════════════════════════════════════════════════════
@@ -648,11 +712,25 @@ class DatabaseManager:
 # ── helper: правильно конвертировать sqlite3.Row -> ExpenseRow ──
 
 
-def _expense_from_row(r: sqlite3.Row) -> ExpenseRow:
-    """sqlite3.Row → ExpenseRow с корректным типом is_recurring (bool)."""
+def _expense_from_row(
+    r: sqlite3.Row, *, view_month: int | None = None, view_year: int | None = None
+) -> ExpenseRow:
+    """sqlite3.Row → ExpenseRow с корректным типом is_recurring (bool).
+
+    Если задан view_month/view_year (запрос конкретного периода в
+    get_expenses), месяц/год в результате подменяются на запрошенный
+    период — иначе спроецированный повторяющийся расход показывал бы
+    месяц своего создания, а не месяц, на который он сейчас
+    распространяется.
+    """
     d = dict(r)
     d["is_recurring"] = bool(d["is_recurring"])
-    # Убеждаемся, что group_id присутствует
+    # Убеждаемся, что group_id/recurring_until присутствуют
     if "group_id" not in d:
         d["group_id"] = None
+    if "recurring_until" not in d:
+        d["recurring_until"] = None
+    if view_month is not None and view_year is not None:
+        d["month"] = view_month
+        d["year"] = view_year
     return ExpenseRow(**d)

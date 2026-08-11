@@ -158,6 +158,52 @@ class TestExpenseItems:
         response = client.delete(f"/api/expense-items/{created['id']}")
         assert response.status_code == 204
 
+    def test_recurring_expense_is_projected_into_a_later_month(self, client: TestClient):
+        client.post("/api/expense-items", json={
+            "name": "Кредит", "amount": 5000, "half": 1, "month": 8, "year": 2026,
+            "isRecurring": True,
+        })
+
+        september = client.get("/api/expense-items", params={"month": 9, "year": 2026}).json()
+
+        assert len(september) == 1
+        assert september[0]["name"] == "Кредит"
+        assert september[0]["month"] == 9  # показан в контексте запрошенного периода
+        assert september[0]["year"] == 2026
+
+    def test_recurring_until_stops_the_projection(self, client: TestClient):
+        client.post("/api/expense-items", json={
+            "name": "Кредит", "amount": 5000, "half": 1, "month": 1, "year": 2026,
+            "isRecurring": True, "recurringUntil": "2026-03-15",
+        })
+
+        assert len(client.get("/api/expense-items", params={"month": 3, "year": 2026}).json()) == 1
+        assert client.get("/api/expense-items", params={"month": 4, "year": 2026}).json() == []
+
+    def test_update_can_explicitly_clear_recurring_until(self, client: TestClient):
+        created = client.post("/api/expense-items", json={
+            "name": "Кредит", "amount": 5000, "half": 1, "month": 1, "year": 2026,
+            "isRecurring": True, "recurringUntil": "2026-02-28",
+        }).json()
+        assert client.get("/api/expense-items", params={"month": 3, "year": 2026}).json() == []
+
+        updated = client.put(f"/api/expense-items/{created['id']}", json={"recurringUntil": None})
+
+        assert updated.status_code == 200
+        assert updated.json()["recurringUntil"] is None
+        assert len(client.get("/api/expense-items", params={"month": 3, "year": 2026}).json()) == 1
+
+    def test_update_omitting_recurring_until_leaves_it_unchanged(self, client: TestClient):
+        created = client.post("/api/expense-items", json={
+            "name": "Кредит", "amount": 5000, "half": 1, "month": 1, "year": 2026,
+            "isRecurring": True, "recurringUntil": "2026-06-30",
+        }).json()
+
+        updated = client.put(f"/api/expense-items/{created['id']}", json={"amount": 5500})
+
+        assert updated.status_code == 200
+        assert updated.json()["recurringUntil"] == "2026-06-30"
+
 
 class TestVacations:
     def test_create_with_range_and_get(self, client: TestClient):

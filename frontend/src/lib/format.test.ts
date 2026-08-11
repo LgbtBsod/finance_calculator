@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { formatCurrency, formatDateLongRu, formatDateRu, pluralizeRu } from './format'
+import {
+  buildBirthDateForApi,
+  formatBirthDateRu,
+  formatCurrency,
+  formatDateLongRu,
+  formatDateRu,
+  parseBirthDate,
+  pluralizeRu,
+} from './format'
 
 describe('formatCurrency', () => {
   it('formats whole rubles without decimals', () => {
@@ -38,6 +46,37 @@ describe('formatDateLongRu', () => {
   it('returns empty string for falsy input', () => {
     expect(formatDateLongRu(null)).toBe('')
     expect(formatDateLongRu('')).toBe('')
+  })
+})
+
+describe('buildBirthDateForApi', () => {
+  it('pads day/month and appends the fixed leap-year placeholder', () => {
+    expect(buildBirthDateForApi(5, 3)).toBe('05.03.2000')
+    expect(buildBirthDateForApi(29, 2)).toBe('29.02.2000') // 2000 — високосный, 29 февраля валидно
+    expect(buildBirthDateForApi(20, 12)).toBe('20.12.2000')
+  })
+})
+
+describe('parseBirthDate', () => {
+  it('extracts day and month, ignoring the year', () => {
+    expect(parseBirthDate('15.03.1990')).toEqual({ day: 15, month: 3 })
+    expect(parseBirthDate('01.01.2000')).toEqual({ day: 1, month: 1 })
+  })
+
+  it('returns null for malformed input', () => {
+    expect(parseBirthDate('not-a-date')).toBeNull()
+    expect(parseBirthDate('')).toBeNull()
+  })
+})
+
+describe('formatBirthDateRu', () => {
+  it('formats as "день месяц" without the year', () => {
+    expect(formatBirthDateRu('15.03.1990')).toBe('15 марта')
+    expect(formatBirthDateRu('01.01.2000')).toBe('1 января')
+  })
+
+  it('falls back to the raw string for malformed input', () => {
+    expect(formatBirthDateRu('garbage')).toBe('garbage')
   })
 })
 

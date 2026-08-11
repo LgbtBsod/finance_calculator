@@ -3,7 +3,9 @@ import { apiClient } from '../api/client'
 import type { components } from '../api/client'
 import { queryKeys } from '../lib/queryClient'
 
+export type Birthday = components['schemas']['BirthdayResponse']
 type BirthdayCreate = components['schemas']['BirthdayCreate']
+type BirthdayUpdate = components['schemas']['BirthdayUpdate']
 
 export function useBirthdays() {
   return useQuery({
@@ -35,6 +37,24 @@ export function useCreateBirthday() {
     mutationFn: async (payload: BirthdayCreate) => {
       const { data, error } = await apiClient.POST('/api/birthdays', { body: payload })
       if (error) throw new Error('Failed to create birthday')
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.birthdays })
+      queryClient.invalidateQueries({ queryKey: ['birthday-alerts'] })
+    },
+  })
+}
+
+export function useUpdateBirthday() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: BirthdayUpdate }) => {
+      const { data, error } = await apiClient.PUT('/api/birthdays/{birthday_id}', {
+        params: { path: { birthday_id: id } },
+        body,
+      })
+      if (error) throw new Error('Failed to update birthday')
       return data
     },
     onSuccess: () => {

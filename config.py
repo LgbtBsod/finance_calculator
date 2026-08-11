@@ -93,7 +93,10 @@ class AppSettings(BaseSettings):
     # Payout settings
     payout_day1: int = 10
     payout_day2: int = 25
-    move_weekend_to_friday: bool = False
+    # ТК РФ ст. 136: если день выплаты зарплаты приходится на выходной или
+    # праздничный день, зарплата должна быть выплачена накануне этого дня —
+    # это обязательное правило, а не опция, поэтому по умолчанию включено.
+    move_weekend_to_friday: bool = True
     
     @property
     def net_salary(self) -> float:

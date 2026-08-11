@@ -651,6 +651,8 @@ export interface components {
             isRecurring: boolean;
             /** Groupid */
             groupId?: string | null;
+            /** Recurringuntil */
+            recurringUntil?: string | null;
         };
         /** ExpenseItemResponse */
         ExpenseItemResponse: {
@@ -673,6 +675,8 @@ export interface components {
             half: number;
             /** Isrecurring */
             isRecurring: boolean;
+            /** Recurringuntil */
+            recurringUntil?: string | null;
             /** Month */
             month: number;
             /** Year */
@@ -690,6 +694,8 @@ export interface components {
             isRecurring?: boolean | null;
             /** Groupid */
             groupId?: string | null;
+            /** Recurringuntil */
+            recurringUntil?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -746,7 +752,7 @@ export interface components {
             payoutDay2: number;
             /**
              * Moveweekendtofriday
-             * @default false
+             * @default true
              */
             moveWeekendToFriday: boolean;
             /**

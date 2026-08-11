@@ -112,6 +112,9 @@ class ExpenseItemCreate(BaseModel):
     year: int = Field(..., ge=2020, le=2100)
     isRecurring: bool = Field(default=False)
     groupId: str | None = None
+    # Необязательное "до какого месяца повторять" — YYYY-MM-DD. Актуально
+    # только когда isRecurring=True; для разовых расходов игнорируется.
+    recurringUntil: str | None = None
 
 
 class ExpenseItemUpdate(BaseModel):
@@ -120,6 +123,7 @@ class ExpenseItemUpdate(BaseModel):
     half: int | None = Field(None, ge=1, le=2)
     isRecurring: bool | None = None
     groupId: str | None = None
+    recurringUntil: str | None = None
 
 
 class ExpenseItemResponse(BaseModel):
@@ -131,6 +135,7 @@ class ExpenseItemResponse(BaseModel):
     isInclusive: bool = False
     half: int
     isRecurring: bool
+    recurringUntil: str | None = None
     month: int
     year: int
 
@@ -169,7 +174,7 @@ class DebtResponse(BaseModel):
 class DebtSettings(BaseModel):
     payoutDay1: int = Field(default=10, ge=1, le=31, description="Первый день выплаты")
     payoutDay2: int = Field(default=25, ge=1, le=31, description="Второй день выплаты")
-    moveWeekendToFriday: bool = Field(default=False, description="Переносить выходные на пятницу")
+    moveWeekendToFriday: bool = Field(default=True, description="Переносить выходные на пятницу")
 
 
 class VacationCreate(BaseModel):
@@ -216,7 +221,7 @@ class SalarySettingsResponse(BaseModel):
     standardHours: int
     payoutDay1: int = 10
     payoutDay2: int = 25
-    moveWeekendToFriday: bool = False
+    moveWeekendToFriday: bool = True
     salaryCalculationMethod: str = "proportional"
     firstHalfRatio: float = 0.4
     secondHalfRatio: float = 0.6
@@ -438,6 +443,7 @@ async def get_expense_items(
             isInclusive=e.get("is_inclusive", False),
             half=e.get("half", 1),
             isRecurring=e.get("is_recurring", False),
+            recurringUntil=e.get("recurring_until"),
             month=e["month"],
             year=e["year"]
         )
@@ -458,7 +464,8 @@ async def create_expense_item(
         year=data.year,
         half=data.half,
         is_recurring=data.isRecurring,
-        group_id=data.groupId
+        group_id=data.groupId,
+        recurring_until=data.recurringUntil,
     )
     # Возвращаем созданную запись
     expenses = db.get_expenses(month=data.month, year=data.year)
@@ -472,6 +479,7 @@ async def create_expense_item(
         isInclusive=False,
         half=data.half,
         isRecurring=data.isRecurring,
+        recurringUntil=data.recurringUntil,
         month=data.month,
         year=data.year
     )
@@ -498,6 +506,7 @@ async def get_expense_item(
                         isInclusive=False,
                         half=expense["half"],
                         isRecurring=expense["is_recurring"],
+                        recurringUntil=expense.get("recurring_until"),
                         month=expense["month"],
                         year=expense["year"]
                     )
@@ -517,17 +526,23 @@ async def update_expense_item(
     """Обновить расход с поддержкой partial update (PATCH semantics)."""
     try:
         eid = int(item_id)
-        
-        # Используем обновленный метод update_expense с group_id
-        db.update_expense(
+
+        # recurringUntil — трёхзначное поле (см. DatabaseManager.update_expense):
+        # передаём его в БД только если клиент явно включил ключ в JSON —
+        # иначе null неотличим от "не трогать это поле" и очистка была бы
+        # неотличима от отсутствия изменений.
+        update_kwargs: dict = dict(
             eid=eid,
             name=data.name,
             amount=data.amount,
             half=data.half,
             is_recurring=data.isRecurring,
-            group_id=data.groupId
+            group_id=data.groupId,
         )
-        
+        if "recurringUntil" in data.model_fields_set:
+            update_kwargs["recurring_until"] = data.recurringUntil
+        db.update_expense(**update_kwargs)
+
         # Получаем обновленные данные
         all_expenses = db.get_expenses()
         updated = None
@@ -552,6 +567,7 @@ async def update_expense_item(
                     isInclusive=False,
                     half=u["half"],
                     isRecurring=u["is_recurring"],
+                    recurringUntil=u.get("recurring_until"),
                     month=u["month"],
                     year=u["year"]
                 )

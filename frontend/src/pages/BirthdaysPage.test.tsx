@@ -11,6 +11,7 @@ vi.mock('../api/client', () => ({
   apiClient: {
     GET: vi.fn(),
     POST: vi.fn(),
+    PUT: vi.fn(),
     DELETE: vi.fn(),
   },
 }))
@@ -18,12 +19,15 @@ vi.mock('../api/client', () => ({
 const mockedApiClient = apiClient as unknown as {
   GET: ReturnType<typeof vi.fn>
   POST: ReturnType<typeof vi.fn>
+  PUT: ReturnType<typeof vi.fn>
   DELETE: ReturnType<typeof vi.fn>
 }
 
+// Год в birthDate хранится, но в UI не показывается и не запрашивается —
+// расчёты используют только день+месяц (см. lib/format.ts).
 const sampleBirthdays = [
-  { id: '1', name: 'Аня', birthDate: '15.03.1990', giftAmount: 3000 },
-  { id: '2', name: 'Борис', birthDate: '01.01.1985', giftAmount: 5000 },
+  { id: '1', name: 'Аня', birthDate: '15.03.2000', giftAmount: 3000 },
+  { id: '2', name: 'Борис', birthDate: '01.01.2000', giftAmount: 5000 },
 ]
 
 function mockGet(birthdays: unknown[] = [], alerts: unknown[] = []) {
@@ -52,18 +56,18 @@ beforeEach(() => {
 })
 
 describe('BirthdaysPage', () => {
-  it('renders loaded birthdays', async () => {
+  it('renders loaded birthdays without the (irrelevant) year', async () => {
     mockGet(sampleBirthdays, [])
 
     renderPage()
 
     expect(await screen.findByText('Аня')).toBeInTheDocument()
     expect(screen.getByText('Борис')).toBeInTheDocument()
-    expect(screen.getByText('🎂 15.03.1990')).toBeInTheDocument()
-    expect(screen.getByText('🎂 01.01.1985')).toBeInTheDocument()
+    expect(screen.getByText('🎂 15 марта')).toBeInTheDocument()
+    expect(screen.getByText('🎂 1 января')).toBeInTheDocument()
   })
 
-  it('submits the form and calls the create mutation with the correct payload', async () => {
+  it('submits the form and calls the create mutation with a placeholder-year date', async () => {
     mockGet([], [])
     mockedApiClient.POST.mockResolvedValue({
       data: { id: '3', name: 'Вика', birthDate: '20.05.2000', giftAmount: 1500 },
@@ -76,7 +80,8 @@ describe('BirthdaysPage', () => {
     await screen.findByText('🎂 Нет добавленных дней рождения')
 
     await user.type(screen.getByLabelText('Имя'), 'Вика')
-    await user.type(screen.getByLabelText('Дата рождения (ДД.ММ.ГГГГ)'), '20.05.2000')
+    await user.selectOptions(screen.getByLabelText('День'), '20')
+    await user.selectOptions(screen.getByLabelText('Месяц'), '5')
     const amountInput = screen.getByLabelText('Сумма подарка')
     await user.clear(amountInput)
     await user.type(amountInput, '1500')
@@ -99,8 +104,7 @@ describe('BirthdaysPage', () => {
 
     await screen.findByText('Аня')
 
-    const deleteButtons = screen.getAllByRole('button', { name: 'Удалить' })
-    await user.click(deleteButtons[0])
+    await user.click(screen.getByRole('button', { name: 'Удалить день рождения «Аня»' }))
 
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toBeInTheDocument()
@@ -110,6 +114,39 @@ describe('BirthdaysPage', () => {
     await waitFor(() => {
       expect(mockedApiClient.DELETE).toHaveBeenCalledWith('/api/birthdays/{birthday_id}', {
         params: { path: { birthday_id: '1' } },
+      })
+    })
+  })
+
+  it('pre-fills the form and calls the update mutation when editing', async () => {
+    mockGet(sampleBirthdays, [])
+    mockedApiClient.PUT.mockResolvedValue({
+      data: { id: '1', name: 'Аня', birthDate: '15.03.2000', giftAmount: 4000 },
+      error: undefined,
+    })
+
+    renderPage()
+    const user = userEvent.setup()
+
+    await screen.findByText('Аня')
+
+    await user.click(screen.getByRole('button', { name: 'Редактировать день рождения «Аня»' }))
+
+    expect(await screen.findByText('✏️ Редактирование дня рождения')).toBeInTheDocument()
+    expect(screen.getByLabelText('Имя')).toHaveValue('Аня')
+    expect(screen.getByLabelText('День')).toHaveValue('15')
+    expect(screen.getByLabelText('Месяц')).toHaveValue('3')
+
+    const amountInput = screen.getByLabelText('Сумма подарка')
+    await user.clear(amountInput)
+    await user.type(amountInput, '4000')
+
+    await user.click(screen.getByRole('button', { name: '💾 Сохранить изменения' }))
+
+    await waitFor(() => {
+      expect(mockedApiClient.PUT).toHaveBeenCalledWith('/api/birthdays/{birthday_id}', {
+        params: { path: { birthday_id: '1' } },
+        body: { name: 'Аня', birthDate: '15.03.2000', giftAmount: 4000 },
       })
     })
   })

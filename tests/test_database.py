@@ -19,6 +19,9 @@ class TestSettings:
         # _seed_defaults запускается в __init__ через _init_db
         assert db.get_setting("base_salary") != ""
         assert db.get_setting("salary_calculation_method") == "proportional"
+        # ТК РФ ст. 136 — перенос выплаты с выходного на более ранний рабочий
+        # день обязателен по умолчанию, а не опционален.
+        assert db.get_setting("move_weekend_to_friday") == "true"
 
 
 class TestExpenseGroups:
@@ -86,6 +89,87 @@ class TestExpenses:
         eid = db.get_expenses()[0]["id"]
         db.delete_expense(eid)
         assert db.get_expenses() == []
+
+
+class TestRecurringExpenseProjection:
+    """Повторяющийся расход не копируется в БД на каждый месяц — get_expenses
+    сама "продолжает" его вперёд, пока не наступит месяц recurring_until."""
+
+    def test_recurring_expense_projects_into_later_month(self, db: DatabaseManager):
+        db.add_expense("Кредит", 5000.0, half=1, month=8, year=2026, is_recurring=True)
+
+        september = db.get_expenses(month=9, year=2026)
+
+        assert len(september) == 1
+        assert september[0]["name"] == "Кредит"
+
+    def test_projected_expense_shows_the_viewed_period_not_its_origin(self, db: DatabaseManager):
+        db.add_expense("Кредит", 5000.0, half=1, month=8, year=2026, is_recurring=True)
+
+        projected = db.get_expenses(month=11, year=2026)[0]
+
+        assert (projected["month"], projected["year"]) == (11, 2026)
+
+    def test_non_recurring_expense_does_not_project(self, db: DatabaseManager):
+        db.add_expense("Разовая покупка", 500.0, half=1, month=8, year=2026, is_recurring=False)
+
+        assert db.get_expenses(month=9, year=2026) == []
+
+    def test_recurring_expense_does_not_appear_before_its_origin_month(self, db: DatabaseManager):
+        db.add_expense("Кредит", 5000.0, half=1, month=8, year=2026, is_recurring=True)
+
+        assert db.get_expenses(month=7, year=2026) == []
+
+    def test_recurring_until_stops_projection_after_that_month(self, db: DatabaseManager):
+        db.add_expense(
+            "Кредит", 5000.0, half=1, month=1, year=2026,
+            is_recurring=True, recurring_until="2026-03-15",
+        )
+
+        assert len(db.get_expenses(month=3, year=2026)) == 1  # месяц окончания — ещё включается
+        assert db.get_expenses(month=4, year=2026) == []  # а после — уже нет
+
+    def test_recurring_until_across_year_boundary(self, db: DatabaseManager):
+        db.add_expense(
+            "Кредит", 5000.0, half=1, month=11, year=2025,
+            is_recurring=True, recurring_until="2026-01-31",
+        )
+
+        assert len(db.get_expenses(month=1, year=2026)) == 1
+        assert db.get_expenses(month=2, year=2026) == []
+
+    def test_show_all_periods_returns_raw_rows_without_projection(self, db: DatabaseManager):
+        """month/year=None ("за все периоды" в UI) — не проецирует, просто
+        отдаёт реальные строки БД как есть."""
+        db.add_expense("Кредит", 5000.0, half=1, month=8, year=2026, is_recurring=True)
+
+        rows = db.get_expenses()
+
+        assert len(rows) == 1
+        assert (rows[0]["month"], rows[0]["year"]) == (8, 2026)
+
+    def test_update_can_set_and_then_clear_recurring_until(self, db: DatabaseManager):
+        db.add_expense("Кредит", 5000.0, half=1, month=8, year=2026, is_recurring=True)
+        eid = db.get_expenses()[0]["id"]
+
+        db.update_expense(eid, recurring_until="2026-09-30")
+        assert db.get_expenses(month=8, year=2026)[0]["recurring_until"] == "2026-09-30"
+        assert db.get_expenses(month=10, year=2026) == []  # уже за пределами окончания
+
+        db.update_expense(eid, recurring_until=None)  # явная очистка — снова бессрочно
+        assert db.get_expenses(month=8, year=2026)[0]["recurring_until"] is None
+        assert len(db.get_expenses(month=10, year=2026)) == 1
+
+    def test_update_without_recurring_until_kwarg_leaves_it_unchanged(self, db: DatabaseManager):
+        db.add_expense(
+            "Кредит", 5000.0, half=1, month=8, year=2026,
+            is_recurring=True, recurring_until="2026-12-31",
+        )
+        eid = db.get_expenses()[0]["id"]
+
+        db.update_expense(eid, amount=5500.0)  # recurring_until не передан вовсе
+
+        assert db.get_expenses(month=8, year=2026)[0]["recurring_until"] == "2026-12-31"
 
 
 class TestVacations:
