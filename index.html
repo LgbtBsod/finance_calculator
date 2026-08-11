@@ -219,6 +219,13 @@
                     <label>Стандартные часы</label>
                     <input type="number" id="setting-standard-hours" placeholder="40">
                 </div>
+                <div class="form-group">
+                    <label>Метод расчета зарплаты</label>
+                    <select id="setting-salary-method" style="width: 100%; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--gray-300); font-size: var(--font-size-base); background: var(--bg-primary);">
+                        <option value="proportional">Пропорциональный (40%/60%)</option>
+                        <option value="working_days">По рабочим дням</option>
+                    </select>
+                </div>
                 <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--gray-200);">
                 <h3 style="color: var(--primary); margin-bottom: 15px;">Дни выплаты зарплаты</h3>
                 <div class="form-row">

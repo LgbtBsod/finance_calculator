@@ -187,6 +187,9 @@ class DatabaseManager:
             "payout_day1": str(getattr(settings, 'payout_day1', 10)),
             "payout_day2": str(getattr(settings, 'payout_day2', 25)),
             "move_weekend_to_friday": str(getattr(settings, 'move_weekend_to_friday', False)).lower(),
+            "salary_calculation_method": getattr(settings, 'salary_calculation_method', 'proportional'),
+            "first_half_ratio": str(getattr(settings, 'first_half_ratio', 0.4)),
+            "second_half_ratio": str(getattr(settings, 'second_half_ratio', 0.6)),
         }
         for k, v in defaults.items():
             c.execute(

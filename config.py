@@ -72,6 +72,14 @@ class AppSettings(BaseSettings):
     advance_cutoff_day: int = 15
     is_advance_date_inclusive: bool = True
     
+    # Salary calculation method: "proportional" (40/60), "custom_proportions" (user-defined), or "working_days"
+    salary_calculation_method: str = "proportional"
+    
+    # Custom proportions for salary split (first_half_ratio, second_half_ratio)
+    # Only used when salary_calculation_method == "custom_proportions"
+    first_half_ratio: float = 0.4
+    second_half_ratio: float = 0.6
+    
     # Account settings
     account_shortened: bool = False
     
