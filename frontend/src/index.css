@@ -1,0 +1,102 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens — Apple-inspired palette carried over from the original
+ * vanilla-JS prototype (static/css/styles.css), now defined CSS-first for
+ * Tailwind v4. Values in @theme also become utility classes (bg-primary,
+ * rounded-lg, shadow-md, text-lg, ...); the rest are plain custom
+ * properties consumed via arbitrary values / var().
+ */
+@theme {
+  --color-primary: #007aff;
+  --color-primary-hover: #0062cc;
+  --color-success: #34c759;
+  --color-danger: #ff3b30;
+  --color-warning: #ff9500;
+  --color-info: #5ac8fa;
+
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f2f2f7;
+  --color-gray-200: #e5e5ea;
+  --color-gray-300: #d1d1d6;
+  --color-gray-400: #c7c7cc;
+  --color-gray-500: #8e8e93;
+  --color-gray-600: #636366;
+  --color-gray-700: #48484a;
+  --color-gray-800: #2c2c2e;
+  --color-gray-900: #1c1c1e;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow-card-hover: 0 4px 12px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 8px 24px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 16px 48px rgb(0 0 0 / 0.16);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f2f2f7;
+  --text-primary: #1c1c1e;
+  --text-secondary: #6b6b70;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1c1c1e;
+    --bg-secondary: #000000;
+    --text-primary: #f2f2f7;
+    --text-secondary: #98989d;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+.animate-toast-in {
+  animation: slide-in-right 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-toast-out {
+  animation: slide-out-right 0.25s ease-in;
+}

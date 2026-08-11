@@ -17,6 +17,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -327,9 +328,7 @@ class PDFParser:
                         continue
                     if stripped.endswith("дней:") or stripped.endswith("дни:"):
                         continue
-                    if ("на" in stripped and "января" in stripped) or "декабря" in stripped:
-                        transfers_raw.append(stripped)
-                    elif re.search(r"на\s+\d", stripped):
+                    if ("на" in stripped and "января" in stripped) or "декабря" in stripped or re.search(r"на\s+\d", stripped):
                         transfers_raw.append(stripped)
         return transfers_raw
 
@@ -344,10 +343,8 @@ class PDFParser:
                 day = int(m.group(1))
                 month = MONTH_NAMES_GENITIVE.get(m.group(2).lower())
                 if month:
-                    try:
+                    with suppress(ValueError):
                         extra_holidays.append(date(year, month, day))
-                    except ValueError:
-                        pass
         return extra_holidays
 
     @classmethod
@@ -372,10 +369,8 @@ class PDFParser:
                 day = int(m.group(1))
                 month = MONTH_NAMES_GENITIVE.get(m.group(2).lower())
                 if month:
-                    try:
+                    with suppress(ValueError):
                         shortened.append(date(year, month, day))
-                    except ValueError:
-                        pass
         return shortened
 
     @classmethod

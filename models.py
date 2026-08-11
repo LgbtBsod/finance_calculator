@@ -1,17 +1,18 @@
 """models.py — Чистые immutable модели данных, Enum'ы, Protocol'ы, TypedDict'ы.
 
 Нулевая бизнес-логика — только структура и контракты.
-Используем pydantic для валидации DTO (Data Transfer Objects).
+
+Pydantic DTO для валидации HTTP-запросов сознательно живут в api.py, а не
+здесь: там их единственный потребитель (SRP), и там же генерируется OpenAPI-
+схема, которую фронтенд использует для типов (см. ARCHITECTURE.md).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from enum import StrEnum, IntEnum
-from typing import Protocol, TypedDict, FrozenSet
-
-from pydantic import BaseModel, Field, field_validator
+from enum import IntEnum, StrEnum
+from typing import Protocol, TypedDict
 
 __all__ = [
     # Enum'ы
@@ -37,10 +38,6 @@ __all__ = [
     "VacationRow",
     "CorrectionRow",
     "CalendarRow",
-    # Pydantic DTO для API
-    "ExpenseDTO",
-    "VacationDTO",
-    "BirthdayDTO",
 ]
 
 
@@ -85,6 +82,23 @@ class SalaryBreakdown:
     total_accrued: float
     to_pay_half_1: float
     to_pay_half_2: float
+    # Заполняются только методом "working_days" — прозрачность расчёта:
+    # сколько рабочих дней легло в каждую половину месяца (после вычета
+    # дней отпуска) и на основе какого дня отсечения. None для остальных
+    # методов, где день расчёта не участвует в пропорции.
+    calculation_method: str = "proportional"
+    working_days_half_1: float | None = None
+    working_days_half_2: float | None = None
+    working_days_total: float | None = None
+    advance_cutoff_day: int | None = None
+    # Реальные даты выплат (ISO), с переносом на более ранний рабочий день
+    # при move_weekend_to_friday — см. SalaryCalculator.payout_dates.
+    payout_date_1: str | None = None
+    payout_date_2: str | None = None
+    # Номинальные даты (до переноса) — если отличаются от payout_date_*,
+    # значит дата была сдвинута из-за выходного/праздника.
+    payout_date_1_nominal: str | None = None
+    payout_date_2_nominal: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,8 +122,8 @@ class BirthdayAlert:
 @dataclass(frozen=True, slots=True)
 class PDFParseResult:
     year: int
-    extra_holidays: FrozenSet[date]
-    shortened_days: FrozenSet[date]
+    extra_holidays: frozenset[date]
+    shortened_days: frozenset[date]
     monthly_working_days: dict[int, int]
     monthly_hours_40: dict[int, float]
     transfers_raw: tuple[str, ...]
@@ -127,6 +141,10 @@ class CalendarReader(Protocol):
     """Протокол поставщика рабочих дней. Реализуется CalendarService."""
     def get_working_days(self, year: int, month: int) -> tuple[float, float, float]:
         """(total, half_1, half_2)."""
+        ...
+
+    def classify_day(self, d: date) -> DayKind:
+        """Тип конкретного дня — нужен для вычитания дней отпуска из рабочих."""
         ...
 
 
@@ -184,6 +202,8 @@ class VacationRow(TypedDict):
     id: int
     total_amount: float
     payout_date: str
+    start_date: str | None
+    end_date: str | None
 
 
 class CorrectionRow(TypedDict):
@@ -197,55 +217,3 @@ class CalendarRow(TypedDict):
     is_working: int
     is_holiday: int
     is_shortened: int
-
-
-# ── Pydantic DTO для API валидации ────────────────────────────
-
-class ExpenseDTO(BaseModel):
-    """DTO для валидации расходов в API."""
-    name: str = Field(..., min_length=1, max_length=200, description="Название расхода")
-    amount: float = Field(..., gt=0, description="Сумма должна быть положительной")
-    half: int = Field(..., ge=1, le=2, description="Половина месяца (1 или 2)")
-    month: int = Field(..., ge=1, le=12, description="Месяц (1-12)")
-    year: int = Field(..., ge=2020, le=2100, description="Год (2020-2100)")
-    is_recurring: bool = Field(default=False, description="Повторяющийся расход")
-
-    @field_validator('name')
-    @classmethod
-    def validate_name(cls, v: str) -> str:
-        return v.strip()
-
-
-class VacationDTO(BaseModel):
-    """DTO для валидации отпускных в API."""
-    total_amount: float = Field(..., gt=0, description="Сумма отпускных")
-    payout_date: str = Field(..., description="Дата выплаты в формате YYYY-MM-DD")
-
-    @field_validator('payout_date')
-    @classmethod
-    def validate_payout_date(cls, v: str) -> str:
-        try:
-            date.fromisoformat(v)
-        except ValueError:
-            raise ValueError("Неверный формат даты. Используйте YYYY-MM-DD")
-        return v
-
-
-class BirthdayDTO(BaseModel):
-    """DTO для валидации дней рождений в API."""
-    name: str = Field(..., min_length=1, max_length=200, description="Имя человека")
-    birth_date: str = Field(..., description="Дата рождения в формате DD.MM.YYYY")
-    gift_amount: float = Field(..., gt=0, le=1000000, description="Сумма на подарок")
-
-    @field_validator('birth_date')
-    @classmethod
-    def validate_birth_date(cls, v: str) -> str:
-        try:
-            parts = v.strip().split(".")
-            if len(parts) != 3:
-                raise ValueError
-            day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
-            date(year, month, day)
-        except (ValueError, IndexError):
-            raise ValueError("Неверный формат даты. Используйте DD.MM.YYYY")
-        return v

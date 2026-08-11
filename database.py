@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 from config import get_settings
 from models import (
@@ -40,11 +40,16 @@ class DatabaseManager:
     def _conn(self) -> sqlite3.Connection:
         if self._conn_cache is not None:
             return self._conn_cache
-        c = sqlite3.connect(self.db_path)
+        is_memory = self.db_path == ":memory:"
+        # check_same_thread=False только для :memory: (используется в тестах,
+        # где FastAPI TestClient диспетчеризует запросы в отдельный поток) —
+        # для файловой БД в проде поведение не меняется.
+        c = sqlite3.connect(self.db_path, check_same_thread=not is_memory)
         c.row_factory = sqlite3.Row
-        c.execute("PRAGMA journal_mode=WAL")
+        if not is_memory:
+            c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA foreign_keys=ON")
-        if self.db_path == ":memory:":
+        if is_memory:
             self._conn_cache = c
         return c
 
@@ -65,10 +70,8 @@ class DatabaseManager:
             yield c
             c.commit()
         except Exception:
-            try:
+            with suppress(sqlite3.ProgrammingError):  # DB already closed (in-memory case)
                 c.rollback()
-            except sqlite3.ProgrammingError:
-                pass  # DB already closed (in-memory case)
             raise
         finally:
             if self.db_path != ":memory:":
@@ -144,7 +147,9 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS vacations (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
                     total_amount REAL    NOT NULL DEFAULT 0.0,
-                    payout_date  TEXT
+                    payout_date  TEXT,
+                    start_date   TEXT,
+                    end_date     TEXT
                 );
 
                 -- Долги
@@ -168,10 +173,26 @@ class DatabaseManager:
                 );
             """)
             c.commit()
+            self._migrate_schema(c)
             self._seed_defaults(c)
         finally:
             if self.db_path != ":memory:":
                 c.close()
+
+    def _migrate_schema(self, c: sqlite3.Connection) -> None:
+        """Аддитивные миграции для баз, созданных до появления новых колонок.
+
+        `CREATE TABLE IF NOT EXISTS` не добавляет колонки к уже существующей
+        таблице, поэтому недостающие столбцы добавляем явно (идемпотентно).
+        """
+        existing_cols = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(vacations)").fetchall()
+        }
+        for column in ("start_date", "end_date"):
+            if column not in existing_cols:
+                c.execute(f"ALTER TABLE vacations ADD COLUMN {column} TEXT")
+        c.commit()
 
     def _seed_defaults(self, c: sqlite3.Connection) -> None:
         """Seed default settings from AppSettings (SSOT)."""
@@ -448,12 +469,18 @@ class DatabaseManager:
     #  VACATIONS
     # ═════════════════════════════════════════════════════════
 
-    def add_vacation(self, total_amount: float, payout_date: str) -> None:
+    def add_vacation(
+        self,
+        total_amount: float,
+        payout_date: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> None:
         with self._transaction() as c:
             c.execute(
-                "INSERT INTO vacations (total_amount, payout_date) "
-                "VALUES (?,?)",
-                (total_amount, payout_date),
+                "INSERT INTO vacations (total_amount, payout_date, start_date, end_date) "
+                "VALUES (?,?,?,?)",
+                (total_amount, payout_date, start_date or payout_date, end_date or payout_date),
             )
 
     def get_vacations(
@@ -464,7 +491,7 @@ class DatabaseManager:
         with self._transaction() as c:
             if month is not None and year is not None:
                 rows = c.execute(
-                    "SELECT id, total_amount, payout_date FROM vacations "
+                    "SELECT id, total_amount, payout_date, start_date, end_date FROM vacations "
                     "WHERE strftime('%m', payout_date)=? "
                     "AND strftime('%Y', payout_date)=? "
                     "ORDER BY payout_date",
@@ -472,7 +499,7 @@ class DatabaseManager:
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, total_amount, payout_date FROM vacations "
+                    "SELECT id, total_amount, payout_date, start_date, end_date FROM vacations "
                     "ORDER BY payout_date"
                 ).fetchall()
             return [VacationRow(**dict(r)) for r in rows]
@@ -548,7 +575,13 @@ class DatabaseManager:
                 )
 
     def delete_expense_group(self, group_id: str) -> None:
+        """Удаляет группу; расходы этой группы не удаляются — становятся
+        "без группы" (group_id=NULL), иначе удаление упало бы с
+        FOREIGN KEY constraint failed при наличии ссылающихся расходов."""
         with self._transaction() as c:
+            c.execute(
+                "UPDATE expenses SET group_id=NULL WHERE group_id=?", (group_id,)
+            )
             c.execute("DELETE FROM expense_groups WHERE id=?", (group_id,))
 
     # ═════════════════════════════════════════════════════════

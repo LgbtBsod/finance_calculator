@@ -1,22 +1,21 @@
 #!/bin/bash
+set -e
 
 echo "========================================================"
 echo "  Personal Finance Calculator"
-echo "  Architecture: Python FastAPI + Vanilla JS Frontend"
-echo "  Launch Mode: Direct (No Docker, No Node.js)"
+echo "  Architecture: Python FastAPI + React (TypeScript)"
 echo "========================================================"
 echo ""
 
 # ============================================
 # Check Python
 # ============================================
-echo "[1/3] Checking Python..."
+echo "[1/4] Checking Python..."
 if ! command -v python3 &> /dev/null; then
     echo "[ERROR] Python3 is not installed or not in PATH!"
-    echo "Please install Python 3.8+: https://www.python.org/downloads/"
+    echo "Please install Python 3.10+: https://www.python.org/downloads/"
     exit 1
 fi
-
 echo "[OK] Python detected"
 python3 --version
 echo ""
@@ -24,41 +23,39 @@ echo ""
 # ============================================
 # Install Python dependencies
 # ============================================
-echo "[2/3] Installing Python dependencies..."
+echo "[2/4] Installing Python dependencies..."
 pip3 install -r requirements.txt
-
-if [ $? -ne 0 ]; then
-    echo "[ERROR] Failed to install Python dependencies!"
-    exit 1
-fi
-
 echo "[OK] Python dependencies installed"
+echo ""
+
+# ============================================
+# Build frontend (only if not already built)
+# ============================================
+echo "[3/4] Checking frontend build..."
+if [ -f "frontend/dist/index.html" ]; then
+    echo "[OK] frontend/dist already built - skipping."
+    echo "     Delete frontend/dist to force a rebuild after pulling changes."
+else
+    echo "Frontend not built yet - building now (requires Node.js 20+)..."
+    if ! command -v node &> /dev/null; then
+        echo "[ERROR] Node.js is not installed or not in PATH!"
+        echo "Please install Node.js 20+: https://nodejs.org/"
+        exit 1
+    fi
+    (cd frontend && npm install && npm run build)
+    echo "[OK] Frontend built."
+fi
 echo ""
 
 # ============================================
 # Start the application
 # ============================================
-echo "[3/3] Starting application..."
+echo "[4/4] Starting application..."
 echo "========================================================"
-echo ""
-echo "  Application URL:    http://localhost:8000"
-echo "  API Documentation:  http://localhost:8000/docs"
-echo "  Health Check:       http://localhost:8000/api/health"
-echo ""
-echo "  Opening browser in 2 seconds..."
-echo "  Press Ctrl+C to stop the server"
+echo "  main.py picks a free port automatically and opens"
+echo "  your browser once the server is ready."
+echo "  Press Ctrl+C to stop the server."
 echo "========================================================"
 echo ""
 
-# Open browser after a short delay (allowing server to start)
-sleep 2
-
-# Open browser (works on Linux/Mac)
-if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:8000
-elif command -v open &> /dev/null; then
-    open http://localhost:8000
-fi
-
-# Start FastAPI backend with api.py (includes frontend serving)
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+python3 main.py

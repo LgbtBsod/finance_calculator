@@ -7,9 +7,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import FrozenSet, Tuple
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Корень проекта — якорь для дефолтных путей ниже. Без этого относительный
+# путь "budget.db" резолвится от текущей рабочей директории ПРОЦЕССА, а не
+# от расположения проекта: запусти uvicorn из другой папки (или через IDE
+# с другим cwd) — и приложение как будто "забывает" все настройки, потому
+# что на самом деле открывает/создаёт совсем другой файл БД.
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 __all__ = [
     "RU_BASE_HOLIDAYS",
@@ -24,7 +30,7 @@ __all__ = [
 
 # ── Базовые праздничные дни РФ (ст. 112 ТК РФ) ─────────────
 # Immutable frozenset для безопасности
-RU_BASE_HOLIDAYS: FrozenSet[Tuple[int, int]] = frozenset([
+RU_BASE_HOLIDAYS: frozenset[tuple[int, int]] = frozenset([
     # Новогодние каникулы + Рождество
     (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
     # День защитника Отечества
@@ -58,9 +64,10 @@ class AppSettings(BaseSettings):
         case_sensitive=False,
     )
     
-    # Database & Storage
-    db_path: str = "budget.db"
-    upload_dir: Path = Path(".upload")
+    # Database & Storage — абсолютные пути, привязанные к PROJECT_ROOT,
+    # а не к cwd процесса (см. комментарий у PROJECT_ROOT выше).
+    db_path: str = str(PROJECT_ROOT / "budget.db")
+    upload_dir: Path = PROJECT_ROOT / ".upload"
     
     # Salary calculation defaults
     base_salary: float = 100000.0

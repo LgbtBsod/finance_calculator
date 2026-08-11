@@ -20,16 +20,17 @@ import uuid
 from collections.abc import Generator
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from calculator import BirthdayService, SalaryCalculator
 from config import get_settings as get_app_settings
 from database import DatabaseManager
-from models import ExpenseDTO, VacationDTO, BirthdayDTO
+from prod_calendar import CalendarService
 
 __all__ = ["app"]
 
@@ -46,6 +47,36 @@ def get_db() -> Generator[DatabaseManager, None, None]:
         yield db
     finally:
         db.close()
+
+
+def get_calendar_service(db: DatabaseManager = Depends(get_db)) -> CalendarService:
+    """Собирает CalendarService поверх текущего соединения с БД (DIP)."""
+    return CalendarService(
+        get_setting=db.get_setting,
+        set_setting=db.set_setting,
+        get_corrections=db.get_corrections,
+        save_corrections=db.save_corrections,
+        clear_calendar_cache=db.clear_calendar_cache,
+        calendar_needs_fill=db.calendar_needs_fill,
+        save_calendar_data=db.save_calendar_data,
+        get_calendar_month=db.get_calendar_month,
+    )
+
+
+def get_salary_calculator(
+    db: DatabaseManager = Depends(get_db),
+    calendar: CalendarService = Depends(get_calendar_service),
+) -> SalaryCalculator:
+    """Собирает SalaryCalculator: зависит от Protocol'ов, не от реализаций (DIP)."""
+    return SalaryCalculator(
+        get_setting=db.get_setting,
+        vacations=db,
+        calendar_reader=calendar,
+    )
+
+
+def get_birthday_service(db: DatabaseManager = Depends(get_db)) -> BirthdayService:
+    return BirthdayService(get_setting=db.get_setting)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -144,18 +175,28 @@ class DebtSettings(BaseModel):
 class VacationCreate(BaseModel):
     totalAmount: float = Field(..., gt=0, description="Сумма отпускных")
     payoutDate: str = Field(..., description="Дата выплаты в формате YYYY-MM-DD")
+    startDate: str | None = Field(None, description="Первый день отпуска (YYYY-MM-DD); по умолчанию = payoutDate")
+    endDate: str | None = Field(None, description="Последний день отпуска (YYYY-MM-DD); по умолчанию = payoutDate")
 
 
 class VacationResponse(BaseModel):
     id: str
     totalAmount: float
     payoutDate: str
+    startDate: str | None = None
+    endDate: str | None = None
 
 
 class BirthdayCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     birthDate: str = Field(..., description="Дата рождения в формате DD.MM.YYYY")
     giftAmount: float = Field(..., gt=0, le=1000000)
+
+
+class BirthdayUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    birthDate: str | None = Field(None, description="Дата рождения в формате DD.MM.YYYY")
+    giftAmount: float | None = Field(None, gt=0, le=1000000)
 
 
 class BirthdayResponse(BaseModel):
@@ -179,6 +220,58 @@ class SalarySettingsResponse(BaseModel):
     salaryCalculationMethod: str = "proportional"
     firstHalfRatio: float = 0.4
     secondHalfRatio: float = 0.6
+
+
+class BalanceResponse(BaseModel):
+    """Полный расчёт баланса: зарплата + отпускные - расходы, по половинам месяца."""
+    month: int
+    year: int
+    netSalary: float
+    advance: float
+    payout: float
+    vacationHalf1: float
+    vacationHalf2: float
+    totalAccrued: float
+    toPayHalf1: float
+    toPayHalf2: float
+    expensesHalf1: float
+    expensesHalf2: float
+    balanceHalf1: float
+    balanceHalf2: float
+    # Прозрачность расчёта для метода "working_days" — None для остальных.
+    calculationMethod: str
+    workingDaysHalf1: float | None = None
+    workingDaysHalf2: float | None = None
+    workingDaysTotal: float | None = None
+    advanceCutoffDay: int | None = None
+    # Реальные календарные даты выплат (ISO), с переносом на более ранний
+    # рабочий день при включённой настройке moveWeekendToFriday.
+    payoutDate1: str | None = None
+    payoutDate2: str | None = None
+    # Номинальные даты (до переноса) — если отличаются от payoutDate*,
+    # значит дата была сдвинута из-за выходного/праздника.
+    payoutDate1Nominal: str | None = None
+    payoutDate2Nominal: str | None = None
+
+
+class BirthdayAlertResponse(BaseModel):
+    name: str
+    birthDate: str
+    giftAmount: float
+    triggerDate: str
+    daysUntil: int
+
+
+class AnalyticsCategory(BaseModel):
+    name: str
+    amount: float
+    color: str
+
+
+class AnalyticsSummaryResponse(BaseModel):
+    total: float
+    count: int
+    categories: list[AnalyticsCategory]
 
 
 class SalarySettingsUpdate(BaseModel):
@@ -216,14 +309,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.middleware("http")
-async def close_db_middleware(request, call_next):
-    """Middleware для закрытия соединения с БД после каждого запроса."""
-    from fastapi import Request
-    response = await call_next(request)
-    return response
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -418,7 +503,7 @@ async def get_expense_item(
                     )
                 case False:
                     pass
-    except (ValueError, Exception):
+    except Exception:
         pass
     raise HTTPException(status_code=404, detail="Expense item not found")
 
@@ -471,9 +556,9 @@ async def update_expense_item(
                     year=u["year"]
                 )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=f"Item not found: {e}")
+        raise HTTPException(status_code=404, detail=f"Item not found: {e}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating item: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating item: {e}") from e
 
 
 @app.delete("/api/expense-items/{item_id}", status_code=204)
@@ -485,8 +570,8 @@ async def delete_expense_item(
     try:
         eid = int(item_id)
         db.delete_expense(eid)
-    except (ValueError, Exception):
-        raise HTTPException(status_code=404, detail="Item not found")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Item not found") from e
     return None
 
 
@@ -506,7 +591,9 @@ async def get_vacations(
         VacationResponse(
             id=str(v.get("id", uuid.uuid4())),
             totalAmount=v["total_amount"],
-            payoutDate=v["payout_date"]
+            payoutDate=v["payout_date"],
+            startDate=v.get("start_date"),
+            endDate=v.get("end_date"),
         )
         for v in vacations
     ]
@@ -517,16 +604,29 @@ async def create_vacation(
     data: VacationCreate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Создать новое начисление (отпускные) с валидацией через VacationCreate."""
-    # Validate date format
+    """Создать новое начисление (отпускные) с валидацией через VacationCreate.
+
+    startDate/endDate — необязательный диапазон отпуска: если указан, дни
+    отпуска, попадающие на рабочие дни, вычитаются из базы расчёта обычной
+    зарплаты методом "по рабочим дням" (см. SalaryCalculator). Без диапазона
+    отпуск учитывается только как надбавка к выплате на дату payoutDate —
+    как раньше.
+    """
     try:
         date.fromisoformat(data.payoutDate)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD")
-    
+        start = date.fromisoformat(data.startDate) if data.startDate else None
+        end = date.fromisoformat(data.endDate) if data.endDate else None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD") from e
+
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="startDate не может быть позже endDate")
+
     db.add_vacation(
         total_amount=data.totalAmount,
-        payout_date=data.payoutDate
+        payout_date=data.payoutDate,
+        start_date=data.startDate,
+        end_date=data.endDate,
     )
     vacations = db.get_vacations()
     match vacations:
@@ -537,7 +637,9 @@ async def create_vacation(
     return VacationResponse(
         id=str(last.get("id", uuid.uuid4())),
         totalAmount=data.totalAmount,
-        payoutDate=data.payoutDate
+        payoutDate=data.payoutDate,
+        startDate=last.get("start_date", data.startDate),
+        endDate=last.get("end_date", data.endDate),
     )
 
 
@@ -550,8 +652,8 @@ async def delete_vacation(
     try:
         vid = int(vacation_id)
         db.delete_vacation(vid)
-    except (ValueError, Exception):
-        raise HTTPException(status_code=404, detail="Vacation not found")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Vacation not found") from e
     return None
 
 
@@ -574,24 +676,29 @@ async def get_birthdays(db: DatabaseManager = Depends(get_db)):
     ]
 
 
-@app.post("/api/birthdays", response_model=BirthdayResponse, status_code=201)
-async def create_birthday(
-    data: BirthdayCreate,
-    db: DatabaseManager = Depends(get_db),
-):
-    """Добавить день рождения с валидацией через BirthdayCreate."""
-    # Validate date format DD.MM.YYYY
+def _validate_birth_date_format(value: str) -> None:
+    """DD.MM.YYYY, реальная дата. Общая проверка для create/update —
+    чтобы не дублировать её в каждом эндпоинте (DRY)."""
     try:
-        parts = data.birthDate.strip().split(".")
+        parts = value.strip().split(".")
         match len(parts):
             case 3:
                 day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
                 date(year, month, day)
             case _:
                 raise ValueError()
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте DD.MM.YYYY")
-    
+    except (ValueError, IndexError) as e:
+        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте DD.MM.YYYY") from e
+
+
+@app.post("/api/birthdays", response_model=BirthdayResponse, status_code=201)
+async def create_birthday(
+    data: BirthdayCreate,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Добавить день рождения с валидацией через BirthdayCreate."""
+    _validate_birth_date_format(data.birthDate)
+
     db.add_birthday(
         name=data.name,
         birth_date=data.birthDate,
@@ -611,6 +718,35 @@ async def create_birthday(
     )
 
 
+@app.put("/api/birthdays/{birthday_id}", response_model=BirthdayResponse)
+async def update_birthday(
+    birthday_id: str,
+    data: BirthdayUpdate,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Обновить день рождения (partial update). db.update_birthday требует
+    полный набор полей, поэтому недостающие берём из текущей записи —
+    тот же паттерн, что и update_expense_item."""
+    try:
+        bid = int(birthday_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail="Birthday not found") from e
+
+    current = next((b for b in db.get_birthdays() if b["id"] == bid), None)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Birthday not found")
+
+    if data.birthDate is not None:
+        _validate_birth_date_format(data.birthDate)
+
+    new_name = data.name if data.name is not None else current["name"]
+    new_birth_date = data.birthDate if data.birthDate is not None else current["birth_date"]
+    new_gift_amount = data.giftAmount if data.giftAmount is not None else current["gift_amount"]
+
+    db.update_birthday(bid, new_name, new_birth_date, new_gift_amount)
+    return BirthdayResponse(id=str(bid), name=new_name, birthDate=new_birth_date, giftAmount=new_gift_amount)
+
+
 @app.delete("/api/birthdays/{birthday_id}", status_code=204)
 async def delete_birthday(
     birthday_id: str,
@@ -620,9 +756,43 @@ async def delete_birthday(
     try:
         bid = int(birthday_id)
         db.delete_birthday(bid)
-    except (ValueError, Exception):
-        raise HTTPException(status_code=404, detail="Birthday not found")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Birthday not found") from e
     return None
+
+
+@app.get("/api/birthdays/upcoming", response_model=list[BirthdayAlertResponse])
+async def get_upcoming_birthdays(
+    days: int = Query(30, ge=1, le=365, description="Горизонт напоминания в днях"),
+    db: DatabaseManager = Depends(get_db),
+    service: BirthdayService = Depends(get_birthday_service),
+):
+    """Дни рождения, триггер напоминания которых попадает в ближайшие N дней."""
+    alerts = service.upcoming(db.get_birthdays(), days_ahead=days)
+    return [
+        BirthdayAlertResponse(
+            name=a.name,
+            birthDate=a.birth_date,
+            giftAmount=a.gift_amount,
+            triggerDate=a.trigger_date.isoformat(),
+            daysUntil=a.days_until,
+        )
+        for a in alerts
+    ]
+
+
+@app.post("/api/birthdays/auto-create-expenses", response_model=dict)
+async def auto_create_birthday_expenses(db: DatabaseManager = Depends(get_db)):
+    """Создать расходы на подарки для ДР, чей триггер (-14 дней) попал в текущий месяц."""
+    service = BirthdayService(get_setting=db.get_setting)
+    today = date.today()
+    existing = db.get_expenses(month=today.month, year=today.year)
+    created = service.auto_create_expenses(
+        db.get_birthdays(),
+        existing,
+        add_expense_fn=lambda **kw: db.add_expense(**kw),
+    )
+    return {"created": created}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -725,6 +895,49 @@ async def update_settings(
 
 
 # ═══════════════════════════════════════════════════════════════
+#  BALANCE ENDPOINT (SalaryCalculator — ранее не был подключен к API)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/balance", response_model=BalanceResponse)
+async def get_balance(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2100),
+    db: DatabaseManager = Depends(get_db),
+    calc: SalaryCalculator = Depends(get_salary_calculator),
+):
+    """Полный расчёт баланса за период: ЗП (с учётом выбранного метода
+    распределения по половинам месяца) + отпускные - расходы."""
+    expenses = db.get_expenses(month=month, year=year)
+    result = calc.balance(year, month, expenses)
+    s = result.salary
+    return BalanceResponse(
+        month=month,
+        year=year,
+        netSalary=s.net_salary,
+        advance=s.advance,
+        payout=s.payout,
+        vacationHalf1=s.vacation_half_1,
+        vacationHalf2=s.vacation_half_2,
+        totalAccrued=s.total_accrued,
+        toPayHalf1=s.to_pay_half_1,
+        toPayHalf2=s.to_pay_half_2,
+        expensesHalf1=result.expenses_h1,
+        expensesHalf2=result.expenses_h2,
+        balanceHalf1=result.balance_h1,
+        balanceHalf2=result.balance_h2,
+        calculationMethod=s.calculation_method,
+        workingDaysHalf1=s.working_days_half_1,
+        workingDaysHalf2=s.working_days_half_2,
+        workingDaysTotal=s.working_days_total,
+        advanceCutoffDay=s.advance_cutoff_day,
+        payoutDate1=s.payout_date_1,
+        payoutDate2=s.payout_date_2,
+        payoutDate1Nominal=s.payout_date_1_nominal,
+        payoutDate2Nominal=s.payout_date_2_nominal,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
 #  DEBTS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
@@ -803,8 +1016,8 @@ async def delete_debt(
     try:
         did = int(debt_id)
         db.delete_debt(did)
-    except (ValueError, Exception):
-        raise HTTPException(status_code=404, detail="Debt not found")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Debt not found") from e
     return None
 
 
@@ -817,28 +1030,34 @@ async def add_debt_repayment(
     """Добавить погашение долга."""
     try:
         did = int(debt_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=f"Debt not found: {e}") from e
+
+    try:
         db.add_debt_repayment(
             debt_id=did,
             amount=data.amount,
             date=data.date,
             note=data.note
         )
-        # Fetch the repayment
-        debts = db.get_debts()
-        for debt in debts:
-            if str(debt["id"]) == str(did):
-                if debt["repayments"]:
-                    last_repayment = debt["repayments"][-1]
-                    return RepaymentResponse(
-                        id=str(last_repayment["id"]),
-                        debtId=str(last_repayment["debt_id"]),
-                        amount=last_repayment["amount"],
-                        date=last_repayment["date"],
-                        note=last_repayment["note"]
-                    )
-        raise HTTPException(status_code=500, detail="Failed to fetch created repayment")
-    except (ValueError, Exception) as e:
-        raise HTTPException(status_code=404, detail=f"Debt not found: {e}")
+    except Exception as e:
+        # FOREIGN KEY constraint failed — долга с таким id не существует.
+        raise HTTPException(status_code=404, detail=f"Debt not found: {e}") from e
+
+    # Считать провал этой выборки багом, а не "долг не найден" — поэтому
+    # вне try/except выше: настоящая ошибка сервера должна остаться 500.
+    debts = db.get_debts()
+    for debt in debts:
+        if str(debt["id"]) == str(did) and debt["repayments"]:
+            last_repayment = debt["repayments"][-1]
+            return RepaymentResponse(
+                id=str(last_repayment["id"]),
+                debtId=str(last_repayment["debt_id"]),
+                amount=last_repayment["amount"],
+                date=last_repayment["date"],
+                note=last_repayment["note"]
+            )
+    raise HTTPException(status_code=500, detail="Failed to fetch created repayment")
 
 
 @app.delete("/api/debts/repayments/{repayment_id}", status_code=204)
@@ -850,8 +1069,8 @@ async def delete_debt_repayment(
     try:
         rid = int(repayment_id)
         db.delete_debt_repayment(rid)
-    except (ValueError, Exception):
-        raise HTTPException(status_code=404, detail="Repayment not found")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Repayment not found") from e
     return None
 
 
@@ -859,7 +1078,7 @@ async def delete_debt_repayment(
 #  ANALYTICS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
-@app.get("/api/analytics/summary", response_model=dict)
+@app.get("/api/analytics/summary", response_model=AnalyticsSummaryResponse)
 async def get_analytics_summary(
     month: int | None = Query(None, ge=1, le=12),
     year: int | None = Query(None, ge=2020, le=2100),
@@ -911,23 +1130,32 @@ async def health_check():
 
 
 # ═══════════════════════════════════════════════════════════════
-#  STATIC FILES (Frontend & JS/CSS)
+#  STATIC FILES (React SPA — frontend/dist, собранный `npm run build`)
 # ═══════════════════════════════════════════════════════════════
 
-from fastapi.staticfiles import StaticFiles
-
 BASE_DIR = Path(__file__).parent
+FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 
-# Mount static files directory
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+if (FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
 
 
-@app.get("/")
-async def serve_frontend():
-    """Отдаёт index.html для корневого пути."""
-    index_path = BASE_DIR / "index.html"
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """SPA-fallback: любой путь, не совпавший ни с одним /api/... эндпоинтом
+    выше и не с /assets, отдаёт index.html — дальше маршрутизацией занимается
+    React Router на клиенте (поэтому прямой переход на /settings, /expenses
+    и т.д. по URL или обновление страницы работает без 404).
+
+    Регистрация в самом конце файла обязательна: FastAPI матчит маршруты по
+    порядку регистрации, и этот catch-all не должен перехватывать /api/*.
+    """
+    index_path = FRONTEND_DIST / "index.html"
     if not index_path.exists():
-        raise HTTPException(status_code=404, detail="Frontend not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Frontend не собран. Выполните: cd frontend && npm install && npm run build",
+        )
     return FileResponse(str(index_path))
 
 

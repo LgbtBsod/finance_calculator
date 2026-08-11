@@ -1,27 +1,25 @@
 @echo off
 chcp 65001 >nul
-title Finance Calculator - FastAPI + Vanilla JS
+title Finance Calculator - FastAPI + React
 setlocal enabledelayedexpansion
 
 echo ========================================================
 echo   Personal Finance Calculator
-echo   Architecture: Python FastAPI + Vanilla JS Frontend
-echo   Launch Mode: Direct (No Docker, No Node.js)
+echo   Architecture: Python FastAPI + React (TypeScript)
 echo ========================================================
 echo.
 
 REM ============================================
 REM Check Python
 REM ============================================
-echo [1/3] Checking Python...
+echo [1/4] Checking Python...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python is not installed or not in PATH!
-    echo Please install Python 3.8+: https://www.python.org/downloads/
+    echo Please install Python 3.10+: https://www.python.org/downloads/
     pause
     exit /b 1
 )
-
 echo [OK] Python detected
 python --version
 echo.
@@ -29,38 +27,63 @@ echo.
 REM ============================================
 REM Install Python dependencies
 REM ============================================
-echo [2/3] Installing Python dependencies...
+echo [2/4] Installing Python dependencies...
 pip install -q -r requirements.txt
-
 if errorlevel 1 (
     echo [ERROR] Failed to install Python dependencies!
     pause
     exit /b 1
 )
-
 echo [OK] Python dependencies installed
+echo.
+
+REM ============================================
+REM Build frontend (only if not already built)
+REM ============================================
+echo [3/4] Checking frontend build...
+if exist "frontend\dist\index.html" (
+    echo [OK] frontend\dist already built - skipping.
+    echo      Delete frontend\dist to force a rebuild after pulling changes.
+) else (
+    echo Frontend not built yet - building now (requires Node.js 20+^)...
+    node --version >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Node.js is not installed or not in PATH!
+        echo Please install Node.js 20+: https://nodejs.org/
+        pause
+        exit /b 1
+    )
+    pushd frontend
+    call npm install
+    if errorlevel 1 (
+        echo [ERROR] npm install failed!
+        popd
+        pause
+        exit /b 1
+    )
+    call npm run build
+    if errorlevel 1 (
+        echo [ERROR] Frontend build failed!
+        popd
+        pause
+        exit /b 1
+    )
+    popd
+    echo [OK] Frontend built.
+)
 echo.
 
 REM ============================================
 REM Start the application
 REM ============================================
-echo [3/3] Starting application...
+echo [4/4] Starting application...
 echo ========================================================
-echo.
-echo   Application URL:    http://localhost:8000
-echo   API Documentation:  http://localhost:8000/docs
-echo   Health Check:       http://localhost:8000/api/health
-echo.
-echo   The browser will open automatically in 2 seconds...
-echo   Press Ctrl+C to stop the server
+echo   main.py picks a free port automatically and opens
+echo   your browser once the server is ready.
+echo   Press Ctrl+C to stop the server.
 echo ========================================================
 echo.
 
-REM Open browser after a short delay (allowing server to start)
-timeout /t 2 /nobreak >nul
-start http://localhost:8000
-
-REM Start FastAPI backend with api.py (includes frontend serving)
-python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+python main.py
 
 pause
