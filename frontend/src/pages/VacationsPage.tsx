@@ -9,6 +9,7 @@ import { Field, FieldRow } from '../components/ui/Field'
 import { Input } from '../components/ui/Input'
 import { Spinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/ToastProvider'
+import { useUndoableDelete } from '../hooks/useUndoableDelete'
 import { useCreateVacation, useDeleteVacation, useVacations } from '../hooks/useVacations'
 import { formatCurrency, formatDateRu } from '../lib/format'
 
@@ -52,6 +53,7 @@ export function VacationsPage() {
   const deleteVacation = useDeleteVacation()
   const { showToast } = useToast()
   const confirm = useConfirm()
+  const vacationDeletion = useUndoableDelete<string>()
 
   const {
     register,
@@ -78,18 +80,30 @@ export function VacationsPage() {
     }
   }
 
-  const handleDelete = async (vacationId: string) => {
-    const ok = await confirm({ title: 'Удалить эти отпускные?', danger: true })
+  const handleDelete = async (vacation: Vacation) => {
+    // Сумма и дата прямо в диалоге — как для расходов/ДР/долгов; раньше
+    // здесь был обезличенный "Удалить эти отпускные?", не подтверждающий,
+    // какую именно выплату (среди нескольких похожих) сейчас удаляют.
+    const ok = await confirm({
+      title: `Удалить отпускные ${formatCurrency(vacation.totalAmount)} от ${formatDateRu(vacation.payoutDate)}?`,
+      danger: true,
+    })
     if (!ok) return
-    try {
-      await deleteVacation.mutateAsync(vacationId)
-      showToast('Отпускные удалены', 'success')
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Не удалось удалить отпускные', 'error')
-    }
+    vacationDeletion.scheduleDelete(
+      vacation.id,
+      `Отпускные ${formatCurrency(vacation.totalAmount)} от ${formatDateRu(vacation.payoutDate)} удалены`,
+      () => {
+        deleteVacation.mutate(vacation.id, {
+          onError: (e) =>
+            showToast(e instanceof Error ? e.message : 'Не удалось удалить отпускные', 'error'),
+        })
+      },
+    )
   }
 
-  const vacations = [...(data ?? [])].sort((a, b) => a.payoutDate.localeCompare(b.payoutDate))
+  const vacations = [...(data ?? [])]
+    .filter((vacation) => !vacationDeletion.isPending(vacation.id))
+    .sort((a, b) => a.payoutDate.localeCompare(b.payoutDate))
 
   return (
     <div className="space-y-8">
@@ -160,17 +174,20 @@ export function VacationsPage() {
           ) : (
             <CardGrid>
               {vacations.map((vacation) => (
-                <Card key={vacation.id}>
-                  <CardTitle>{vacationTitle(vacation)}</CardTitle>
+                <Card key={vacation.id} interactive>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle>{vacationTitle(vacation)}</CardTitle>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      size="sm"
+                      aria-label={`Удалить отпускные ${formatCurrency(vacation.totalAmount)} от ${formatDateRu(vacation.payoutDate)}`}
+                      onClick={() => handleDelete(vacation)}
+                    >
+                      🗑️
+                    </Button>
+                  </div>
                   <CardAmount>{formatCurrency(vacation.totalAmount)}</CardAmount>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    className="mt-3"
-                    onClick={() => handleDelete(vacation.id)}
-                  >
-                    Удалить
-                  </Button>
                 </Card>
               ))}
             </CardGrid>

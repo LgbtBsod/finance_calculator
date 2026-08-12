@@ -37,6 +37,10 @@ const sampleDebts = [
     createdAt: '2026-08-01T00:00:00',
     month: 8,
     year: 2026,
+    // Backend теперь сам считает остаток — раньше DebtsPage пересчитывал
+    // то же самое из repayments на клиенте.
+    repaidAmount: 3000,
+    remainingAmount: 7000,
   },
 ]
 
@@ -63,9 +67,13 @@ describe('DebtsPage', () => {
     renderPage()
 
     expect(await screen.findByText('Кредит на авто')).toBeInTheDocument()
-    // remaining = totalAmount(10000) - repaid(3000) = 7000
+    // remaining/repaid теперь приходят прямо с backend (repaidAmount=3000,
+    // remainingAmount=7000 в моке) — фронтенд их больше не пересчитывает.
     expect(screen.getByText(norm(formatCurrency(7000)))).toBeInTheDocument()
-    expect(screen.getByText(norm(`из ${formatCurrency(10000)}`))).toBeInTheDocument()
+    expect(
+      screen.getByText(norm(`из ${formatCurrency(10000)} · погашено ${formatCurrency(3000)}`)),
+    ).toBeInTheDocument()
+    // Сумма самого платежа в списке погашений — отдельный узел от строки "из/погашено" выше.
     expect(screen.getByText(norm(formatCurrency(3000)))).toBeInTheDocument()
   })
 
@@ -80,10 +88,15 @@ describe('DebtsPage', () => {
 
     await screen.findByText('Кредит на авто')
 
+    // Форма создания долга теперь в модалке — открывается по кнопке
+    // "+ Добавить долг" (см. DebtsPage), а не постоянно видима.
+    await user.click(screen.getByRole('button', { name: '+ Добавить долг' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
     const now = new Date()
     await user.type(screen.getByLabelText('Название долга'), 'Новый долг')
     await user.type(screen.getByLabelText('Сумма долга'), '5000')
-    await user.click(screen.getByRole('button', { name: '+ Добавить долг' }))
+    await user.click(screen.getByRole('button', { name: '💾 Сохранить долг' }))
 
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith('/api/debts', {
@@ -97,25 +110,42 @@ describe('DebtsPage', () => {
     })
   })
 
-  it('opens the confirm dialog and deletes the debt on confirmation', async () => {
-    mockedDelete.mockResolvedValue({ data: undefined, error: undefined, response: new Response() })
+  it('opens the confirm dialog, hides the debt immediately, and offers "Отменить" instead of deleting right away', async () => {
+    // Таймер отмены (useUndoableDelete) и его фактическое срабатывание после
+    // 5с проверяются отдельно, на уровне хука (useUndoableDelete.test.ts) —
+    // там же под fake-таймерами, без сложного стека QueryClient/ConfirmProvider,
+    // с которым react-scheduler под fake-таймерами конфликтует и виснет.
+    // Здесь — только то, что видно пользователю немедленно, синхронно.
     const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('Кредит на авто')
 
-    await user.click(screen.getByLabelText('Удалить долг'))
+    await user.click(screen.getByLabelText('Удалить долг «Кредит на авто»'))
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
-
-    // Confirm dialog is open but delete has not been called yet.
     expect(mockedDelete).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'Подтвердить' }))
 
-    await waitFor(() => {
-      expect(mockedDelete).toHaveBeenCalledWith('/api/debts/{debt_id}', {
-        params: { path: { debt_id: '1' } },
-      })
-    })
+    // Мягкое удаление: карточка прячется сразу же, а не после реального DELETE.
+    expect(screen.queryByText('Кредит на авто')).not.toBeInTheDocument()
+    expect(mockedDelete).not.toHaveBeenCalled()
+    expect(await screen.findByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+  })
+
+  it('restores the debt immediately when "Отменить" is clicked', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Кредит на авто')
+    await user.click(screen.getByLabelText('Удалить долг «Кредит на авто»'))
+    await screen.findByRole('alertdialog')
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }))
+    expect(screen.queryByText('Кредит на авто')).not.toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Отменить' }))
+
+    expect(await screen.findByText('Кредит на авто')).toBeInTheDocument()
+    expect(mockedDelete).not.toHaveBeenCalled()
   })
 })

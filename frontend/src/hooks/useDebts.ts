@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
+import { extractErrorMessage } from '../lib/apiError'
 import { queryKeys } from '../lib/queryClient'
 
 export function useDebts() {
@@ -7,7 +8,7 @@ export function useDebts() {
     queryKey: queryKeys.debts,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/api/debts')
-      if (error) throw new Error('Failed to load debts')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось загрузить долги'))
       return data
     },
   })
@@ -32,7 +33,7 @@ export function useCreateDebt() {
           year: now.getFullYear(),
         },
       })
-      if (error) throw new Error('Failed to create debt')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось добавить долг'))
       return data
     },
     onSuccess: () => {
@@ -48,7 +49,7 @@ export function useDeleteDebt() {
       const { error } = await apiClient.DELETE('/api/debts/{debt_id}', {
         params: { path: { debt_id: debtId } },
       })
-      if (error) throw new Error('Failed to delete debt')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось удалить долг'))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.debts })
@@ -72,7 +73,7 @@ export function useAddRepayment() {
           date: new Date().toISOString().slice(0, 10),
         },
       })
-      if (error) throw new Error('Failed to add repayment')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось добавить платёж'))
       return data
     },
     onSuccess: () => {
@@ -88,7 +89,7 @@ export function useDeleteRepayment() {
       const { error } = await apiClient.DELETE('/api/debts/repayments/{repayment_id}', {
         params: { path: { repayment_id: repaymentId } },
       })
-      if (error) throw new Error('Failed to delete repayment')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось удалить платёж'))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.debts })

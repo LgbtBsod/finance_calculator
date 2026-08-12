@@ -11,12 +11,14 @@ G2/H2 и давала расхождения (тот самый "0.1% погре
 
 from __future__ import annotations
 
+import math
 from datetime import date
 
 import pytest
 
 from calculator import SalaryCalculator
 from database import DatabaseManager
+from models import DayKind
 
 # Эталонные значения из реальной таблицы (Лист1, строки 1-7):
 # D2=121003 (оклад), кэф пуст -> 1.0, налог 13% (хардкод *0.87 в таблице)
@@ -34,6 +36,40 @@ def _set_common_settings(db: DatabaseManager, method: str) -> None:
     db.set_setting("salary_calculation_method", method)
     db.set_setting("advance_cutoff_day", "15")
     db.set_setting("is_advance_date_inclusive", "true")
+
+
+class _FakeCalendarReader:
+    """Минимальная реализация Protocol'а CalendarReader (см. models.py) —
+    без реального производственного календаря, чтобы тесты ниже не зависели
+    от данных конкретного года/месяца."""
+
+    def __init__(
+        self,
+        working_days: tuple[float, float, float] = (23.0, 11.0, 12.0),
+        day_kind: DayKind = DayKind.WORKING,
+    ) -> None:
+        self._working_days = working_days
+        self._day_kind = day_kind
+
+    def get_working_days(self, year: int, month: int) -> tuple[float, float, float]:
+        return self._working_days
+
+    def classify_day(self, d: date) -> DayKind:
+        return self._day_kind
+
+
+class _FakeVacationReader:
+    """Минимальная реализация Protocol'а VacationReader (см. models.py) —
+    отдаёт заранее заданный список отпусков, минуя SQL-фильтрацию по датам
+    (важно для теста с некорректной строкой даты — SQLite strftime() на
+    невалидной дате просто вернул бы NULL и строка вовсе не попала бы в
+    выборку, а нам нужно проверить обработку внутри самого калькулятора)."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def get_vacations(self, month: int | None = None, year: int | None = None) -> list[dict]:
+        return self._rows
 
 
 class TestProportionalMethod:
@@ -188,6 +224,100 @@ class TestWorkingDaysMethod:
         assert result.advance == pytest.approx(REFERENCE_NET_SALARY * 0.4, abs=0.01)
         assert result.payout == pytest.approx(REFERENCE_NET_SALARY * 0.6, abs=0.01)
 
+    def test_falls_back_to_40_60_when_calendar_reports_all_zero_days(
+        self, db: DatabaseManager
+    ):
+        """Если CalendarReader.get_working_days() вернул (0.0, 0.0, 0.0)
+        (например, пустой/незаполненный производственный календарь на этот
+        месяц), calculate() должен деградировать к fallback 40/60 — см.
+        `match wd_total: case 0: ...` в calculator.py — а не упасть с
+        ZeroDivisionError и не вернуть NaN."""
+        db.set_setting("base_salary", "100000")
+        db.set_setting("tax_rate", "0")
+        db.set_setting("salary_calculation_method", "working_days")
+        fake_calendar = _FakeCalendarReader(working_days=(0.0, 0.0, 0.0))
+        calc = SalaryCalculator(
+            get_setting=db.get_setting, vacations=db, calendar_reader=fake_calendar
+        )
+
+        result = calc.calculate(2026, 8)  # не должно бросить ZeroDivisionError
+
+        assert result.working_days_total == 0.0
+        assert result.advance == pytest.approx(40000.0)
+        assert result.payout == pytest.approx(60000.0)
+        assert not math.isnan(result.advance)
+        assert not math.isnan(result.payout)
+
+
+class TestMalformedVacationDates:
+    """Битая дата в записи об отпуске (повреждённые данные, ручное
+    редактирование БД и т.п.) не должна ронять весь расчёт зарплаты —
+    _distribute_vacations и _vacation_working_days ловят ValueError/TypeError
+    при разборе даты и пропускают такую запись (см. try/except в
+    calculator.py). Тест закрепляет это СУЩЕСТВУЮЩЕЕ защитное поведение."""
+
+    def test_malformed_payout_date_is_skipped_by_distribute_vacations(
+        self, db: DatabaseManager
+    ):
+        db.set_setting("base_salary", "100000")
+        db.set_setting("tax_rate", "0")
+        db.set_setting("salary_calculation_method", "proportional")
+        bad_vacation = {
+            "id": 1,
+            "total_amount": 5000.0,
+            "payout_date": "not-a-date",
+            "start_date": "not-a-date",
+            "end_date": "not-a-date",
+        }
+        calc = SalaryCalculator(
+            get_setting=db.get_setting,
+            vacations=_FakeVacationReader([bad_vacation]),
+            calendar_reader=None,
+        )
+
+        result = calc.calculate(2026, 8)  # не должно бросить исключение
+
+        assert result.vacation_half_1 == 0.0
+        assert result.vacation_half_2 == 0.0
+
+    def test_malformed_start_date_is_skipped_by_vacation_working_days(
+        self, db: DatabaseManager
+    ):
+        """Метод working_days дополнительно прогоняет отпуска через
+        _vacation_working_days (вычитание из отработанных дней) — та же
+        битая дата должна быть пропущена и там."""
+        db.set_setting("base_salary", "100000")
+        db.set_setting("tax_rate", "0")
+        db.set_setting("salary_calculation_method", "working_days")
+        db.set_setting("advance_cutoff_day", "15")
+        bad_vacation = {
+            "id": 1,
+            "total_amount": 5000.0,
+            "payout_date": "2026-08-04",
+            "start_date": "not-a-date",
+            "end_date": "not-a-date",
+        }
+        fake_calendar = _FakeCalendarReader(working_days=(23.0, 11.0, 12.0))
+        calc = SalaryCalculator(
+            get_setting=db.get_setting,
+            vacations=_FakeVacationReader([bad_vacation]),
+            calendar_reader=fake_calendar,
+        )
+
+        result = calc.calculate(2026, 8)  # не должно бросить исключение
+
+        # start_date/end_date не распарсились -> _vacation_working_days не
+        # вычитает ничего из рабочих дней -> база осталась (11, 12).
+        assert result.working_days_half_1 == pytest.approx(11.0)
+        assert result.working_days_half_2 == pytest.approx(12.0)
+        # payout_date распарсился нормально (2026-08-04, до 15-го) ->
+        # _distribute_vacations (читает payout_date) всё же отнёс отпускные
+        # в первую половину, хотя _vacation_working_days (читает start/end)
+        # эту же запись пропустил — методы читают разные поля записи, так
+        # что "частично битая" запись обрабатывается каждым по-своему.
+        assert result.vacation_half_1 == pytest.approx(5000.0)
+        assert result.vacation_half_2 == 0.0
+
 
 class TestBalance:
     def test_balance_subtracts_expenses_per_half(
@@ -280,6 +410,55 @@ class TestBirthdayService:
         count = birthday_service.auto_create_expenses(
             birthdays, [], lambda **kw: created.append(kw), today=today
         )
+
+        assert count == 0
+        assert created == []
+
+
+class TestBirthdayServiceMalformedInput:
+    """_parse_bd ловит ValueError/IndexError при разборе "ДД.ММ" и
+    возвращает (None, None) — все точки входа, использующие его, должны
+    молча пропустить такую запись, а не бросить исключение наружу."""
+
+    def test_trigger_date_returns_none_for_malformed_birth_date(self, birthday_service):
+        assert birthday_service.trigger_date("not-a-date", 2026) is None
+
+    def test_upcoming_skips_malformed_entry_without_raising(self, birthday_service):
+        birthdays = [
+            {"id": 1, "name": "Битый", "birth_date": "not-a-date", "gift_amount": 500.0},
+        ]
+
+        alerts = birthday_service.upcoming(birthdays, days_ahead=30)  # не должно бросить исключение
+
+        assert alerts == []
+
+    def test_upcoming_processes_valid_entries_alongside_a_malformed_one(self, birthday_service):
+        """Одна битая запись не должна портить обработку остальных в списке."""
+        from datetime import timedelta
+
+        today = date.today()
+        good_bd = (today + timedelta(days=5 + 14)).strftime("%d.%m.%Y")
+        birthdays = [
+            {"id": 1, "name": "Битый", "birth_date": "not-a-date", "gift_amount": 500.0},
+            {"id": 2, "name": "Хороший", "birth_date": good_bd, "gift_amount": 1000.0},
+        ]
+
+        alerts = birthday_service.upcoming(birthdays, days_ahead=30)
+
+        assert len(alerts) == 1
+        assert alerts[0].name == "Хороший"
+
+    def test_auto_create_expenses_skips_malformed_birth_date_without_raising(
+        self, birthday_service
+    ):
+        birthdays = [
+            {"id": 1, "name": "Битый", "birth_date": "not-a-date", "gift_amount": 500.0},
+        ]
+        created = []
+
+        count = birthday_service.auto_create_expenses(
+            birthdays, [], lambda **kw: created.append(kw), today=date(2026, 8, 1)
+        )  # не должно бросить исключение
 
         assert count == 0
         assert created == []

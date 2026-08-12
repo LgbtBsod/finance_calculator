@@ -26,15 +26,11 @@ __all__ = [
     "BirthdayAlert",
     "PDFParseResult",
     # Protocol'ы (контракты для DI)
-    "SettingProvider",
     "CalendarReader",
-    "ExpenseReader",
     "VacationReader",
-    "BirthdayReader",
     # TypedDict'ы (структура строк БД)
     "ExpenseRow",
     "BirthdayRow",
-    "MemoRow",
     "VacationRow",
     "CorrectionRow",
     "CalendarRow",
@@ -130,12 +126,10 @@ class PDFParseResult:
 
 
 # ── Protocol'ы (контракты для dependency injection) ────────────
-
-class SettingProvider(Protocol):
-    """Протокол поставщика настроек. Реализуется DatabaseManager."""
-    def get_setting(self, key: str) -> str: ...
-    def set_setting(self, key: str, value: str) -> None: ...
-
+# SettingProvider/ExpenseReader/BirthdayReader существовали здесь, но не
+# использовались ни в одной аннотации типа (DatabaseManager передаётся
+# напрямую как конкретный класс везде, кроме двух мест ниже) — удалены,
+# чтобы не поддерживать контракты без потребителей.
 
 class CalendarReader(Protocol):
     """Протокол поставщика рабочих дней. Реализуется CalendarService."""
@@ -148,15 +142,6 @@ class CalendarReader(Protocol):
         ...
 
 
-class ExpenseReader(Protocol):
-    """Протокол читателя расходов. Реализуется DatabaseManager."""
-    def get_expenses(
-        self,
-        month: int | None = ...,
-        year: int | None = ...,
-    ) -> list[ExpenseRow]: ...
-
-
 class VacationReader(Protocol):
     """Протокол читателя отпускных. Реализуется DatabaseManager."""
     def get_vacations(
@@ -164,11 +149,6 @@ class VacationReader(Protocol):
         month: int | None = ...,
         year: int | None = ...,
     ) -> list[VacationRow]: ...
-
-
-class BirthdayReader(Protocol):
-    """Протокол читателя дней рождений. Реализуется DatabaseManager."""
-    def get_birthdays(self) -> list[BirthdayRow]: ...
 
 
 # ── TypedDict'ы (структура строк из БД) ─────────────────────
@@ -190,13 +170,6 @@ class BirthdayRow(TypedDict):
     name: str
     birth_date: str
     gift_amount: float
-
-
-class MemoRow(TypedDict):
-    id: int
-    name: str
-    amount: float
-    target_date: str
 
 
 class VacationRow(TypedDict):

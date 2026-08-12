@@ -8,9 +8,11 @@ import { useConfirm } from '../components/ui/ConfirmProvider'
 import { StickyFormColumn } from '../components/layout/StickyFormColumn'
 import { Field, FieldRow } from '../components/ui/Field'
 import { Input } from '../components/ui/Input'
+import { Modal } from '../components/ui/Modal'
 import { Select } from '../components/ui/Select'
 import { Spinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/ToastProvider'
+import { useUndoableDelete } from '../hooks/useUndoableDelete'
 import {
   useAutoCreateBirthdayExpenses,
   useBirthdays,
@@ -68,6 +70,7 @@ export function BirthdaysPage() {
   const autoCreateExpenses = useAutoCreateBirthdayExpenses()
   const confirm = useConfirm()
   const { showToast } = useToast()
+  const birthdayDeletion = useUndoableDelete<string>()
 
   const {
     register,
@@ -82,6 +85,13 @@ export function BirthdaysPage() {
   // id редактируемой записи — вне формы, по тому же паттерну, что и
   // editingItemId в ExpensesPage.
   const [editingId, setEditingId] = useState<string | null>(null)
+  // Форма создания/редактирования теперь в модалке (см. Modal), а не
+  // постоянно видимым блоком над списком — на невысоком экране/окне она
+  // одна занимала столько места, что список дней рождения уходил за пределы
+  // видимой области и выглядел как "дни рождения пропали", хотя это был
+  // просто скролл. Модалка открывается по кнопке "+ Добавить день рождения"
+  // (всегда на виду, в нескроллящейся части колонки) или по "✏️" у карточки.
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   const onSubmit = async (values: BirthdayFormValues) => {
     const birthDate = buildBirthDateForApi(Number(values.day), Number(values.month))
@@ -93,37 +103,59 @@ export function BirthdaysPage() {
         })
         setEditingId(null)
         reset(defaultFormValues())
+        setIsModalOpen(false)
         showToast('День рождения обновлён', 'success')
         return
       }
-      await createBirthday.mutateAsync({ name: values.name, birthDate, giftAmount: values.giftAmount })
+      await createBirthday.mutateAsync({
+        name: values.name,
+        birthDate,
+        giftAmount: values.giftAmount,
+      })
       reset(defaultFormValues())
+      setIsModalOpen(false)
       showToast('День рождения добавлен', 'success')
-    } catch {
-      showToast(editingId ? 'Не удалось обновить день рождения' : 'Не удалось добавить день рождения', 'error')
+    } catch (e) {
+      // Например, 29/30/31 февраля — day/month выбираются раздельно и не
+      // валидируются друг относительно друга на фронтенде, так что реальная
+      // причина ошибки (конкретно какая дата некорректна) приходит только
+      // от backend — earlier здесь всегда показывался один и тот же
+      // обобщённый текст независимо от того, что ответил сервер.
+      const fallback = editingId
+        ? 'Не удалось обновить день рождения'
+        : 'Не удалось добавить день рождения'
+      showToast(e instanceof Error ? e.message : fallback, 'error')
     }
+  }
+
+  const openAddModal = () => {
+    setEditingId(null)
+    reset(defaultFormValues())
+    setIsModalOpen(true)
   }
 
   const startEdit = (birthday: Birthday) => {
     setEditingId(birthday.id)
     reset(birthdayToFormValues(birthday))
+    setIsModalOpen(true)
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     reset(defaultFormValues())
+    setIsModalOpen(false)
   }
 
   const handleDelete = async (id: string, name: string) => {
     const ok = await confirm({ title: `Удалить день рождения «${name}»?`, danger: true })
     if (!ok) return
     if (editingId === id) cancelEdit()
-    try {
-      await deleteBirthday.mutateAsync(id)
-      showToast('День рождения удалён', 'success')
-    } catch {
-      showToast('Не удалось удалить день рождения', 'error')
-    }
+    birthdayDeletion.scheduleDelete(id, `День рождения «${name}» удалён`, () => {
+      deleteBirthday.mutate(id, {
+        onError: (e) =>
+          showToast(e instanceof Error ? e.message : 'Не удалось удалить день рождения', 'error'),
+      })
+    })
   }
 
   const handleAutoCreate = async () => {
@@ -142,78 +174,41 @@ export function BirthdaysPage() {
 
   const isEditing = editingId !== null
 
+  const visibleBirthdays = birthdays?.filter((b) => !birthdayDeletion.isPending(b.id)) ?? []
+
   return (
     <div className="grid grid-cols-1 gap-8 xl:h-full xl:grid-cols-[1fr_22rem]">
       {/* ЦЕНТР: дни рождения — основной объект этой страницы */}
       <StickyFormColumn
         form={
-          <Card variant="default" className="p-5">
-            <h2 className="mb-4 text-xl font-semibold">
-              {isEditing ? '✏️ Редактирование дня рождения' : '🎂 Новый день рождения'}
-            </h2>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <FieldRow>
-                <Field label="Имя" htmlFor="birthday-name" error={errors.name?.message}>
-                  <Input id="birthday-name" {...register('name')} />
-                </Field>
-                <Field label="День" htmlFor="birthday-day" error={errors.day?.message}>
-                  <Select id="birthday-day" {...register('day')}>
-                    {DAY_OPTIONS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Месяц" htmlFor="birthday-month" error={errors.month?.message}>
-                  <Select id="birthday-month" {...register('month')}>
-                    {MONTH_NAMES_RU.slice(1).map((name, i) => (
-                      <option key={name} value={i + 1}>
-                        {name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Сумма подарка" htmlFor="birthday-amount" error={errors.giftAmount?.message}>
-                  <Input
-                    id="birthday-amount"
-                    type="number"
-                    min={0}
-                    {...register('giftAmount', { valueAsNumber: true })}
-                  />
-                </Field>
-              </FieldRow>
-              <div className="flex gap-3">
-                <Button type="submit" disabled={createBirthday.isPending || updateBirthday.isPending}>
-                  {isEditing ? '💾 Сохранить изменения' : '+ Добавить день рождения'}
-                </Button>
-                {isEditing && (
-                  <Button type="button" variant="ghost" onClick={cancelEdit}>
-                    Отмена
-                  </Button>
-                )}
-              </div>
-            </form>
-          </Card>
+          // Всегда на виду (нескроллящаяся часть колонки, см. StickyFormColumn) —
+          // форма создания/редактирования теперь открывается в модалке (ниже),
+          // а не постоянным блоком: раньше на невысоком окне сама форма
+          // занимала весь экран и список дней рождения уходил за пределы
+          // видимой области без скролла, выглядя как "дни рождения пропали".
+          <Button type="button" className="w-full" onClick={openAddModal}>
+            + Добавить день рождения
+          </Button>
         }
       >
-        <section>
+        <section className="@container">
           {isLoading && (
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Spinner /> Загрузка...
             </div>
           )}
-          {isError && <p className="text-sm text-danger">Не удалось загрузить дни рождения</p>}
+          {isError && <p className="text-danger text-sm">Не удалось загрузить дни рождения</p>}
 
-          {birthdays && birthdays.length === 0 && (
+          {birthdays && visibleBirthdays.length === 0 && (
             <p className="text-sm text-gray-500">🎂 Нет добавленных дней рождения</p>
           )}
-          {birthdays && birthdays.length > 0 && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {birthdays.map((birthday) => (
+          {birthdays && visibleBirthdays.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
+              {visibleBirthdays.map((birthday) => (
                 <Card
                   key={birthday.id}
-                  className={birthday.id === editingId ? 'ring-2 ring-primary/50' : undefined}
+                  interactive
+                  className={birthday.id === editingId ? 'ring-primary/50 ring-2' : undefined}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle>{birthday.name}</CardTitle>
@@ -271,7 +266,7 @@ export function BirthdaysPage() {
         {alerts && alerts.length > 0 && (
           <div className="space-y-3">
             {alerts.map((alert) => (
-              <Card key={`${alert.name}-${alert.triggerDate}`} variant="warning">
+              <Card key={`${alert.name}-${alert.triggerDate}`} variant="warning" interactive>
                 <CardTitle>{alert.name}</CardTitle>
                 <p className="text-sm opacity-90">
                   Через {alert.daysUntil} {pluralizeRu(alert.daysUntil, 'день', 'дня', 'дней')} (
@@ -283,6 +278,58 @@ export function BirthdaysPage() {
           </div>
         )}
       </StickyFormColumn>
+
+      <Modal
+        open={isModalOpen}
+        onClose={cancelEdit}
+        title={isEditing ? '✏️ Редактирование дня рождения' : '🎂 Новый день рождения'}
+      >
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <FieldRow>
+            <Field label="Имя" htmlFor="birthday-name" error={errors.name?.message}>
+              <Input id="birthday-name" {...register('name')} />
+            </Field>
+            <Field label="День" htmlFor="birthday-day" error={errors.day?.message}>
+              <Select id="birthday-day" {...register('day')}>
+                {DAY_OPTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Месяц" htmlFor="birthday-month" error={errors.month?.message}>
+              <Select id="birthday-month" {...register('month')}>
+                {MONTH_NAMES_RU.slice(1).map((name, i) => (
+                  <option key={name} value={i + 1}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Сумма подарка"
+              htmlFor="birthday-amount"
+              error={errors.giftAmount?.message}
+            >
+              <Input
+                id="birthday-amount"
+                type="number"
+                min={0}
+                {...register('giftAmount', { valueAsNumber: true })}
+              />
+            </Field>
+          </FieldRow>
+          <div className="flex gap-3">
+            <Button type="submit" disabled={createBirthday.isPending || updateBirthday.isPending}>
+              {isEditing ? '💾 Сохранить изменения' : '💾 Сохранить день рождения'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={cancelEdit}>
+              Отмена
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

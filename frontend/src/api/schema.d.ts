@@ -42,7 +42,11 @@ export interface paths {
         get: operations["get_expense_group_api_expense_groups__group_id__get"];
         /**
          * Update Expense Group
-         * @description Обновить группу расходов.
+         * @description Обновить группу расходов (partial update).
+         *
+         *     parentId/monthlyLimit — трёхзначные поля (см. DatabaseManager.update_expense_group):
+         *     передаём их в БД только если клиент явно включил ключ в JSON — иначе
+         *     null (снять родителя/лимит) неотличим от "поле не передавали".
          */
         put: operations["update_expense_group_api_expense_groups__group_id__put"];
         post?: never;
@@ -87,14 +91,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Expense Item
-         * @description Получить расход по ID.
-         */
-        get: operations["get_expense_item_api_expense_items__item_id__get"];
+        get?: never;
         /**
          * Update Expense Item
          * @description Обновить расход с поддержкой partial update (PATCH semantics).
+         *
+         *     groupId/recurringUntil — трёхзначные поля (см. DatabaseManager.update_expense):
+         *     передаём их в БД только если клиент явно включил ключ в JSON — иначе
+         *     null (снять группу/дату завершения повторения) неотличим от "поле не
+         *     передавали".
          */
         put: operations["update_expense_item_api_expense_items__item_id__put"];
         post?: never;
@@ -262,7 +267,7 @@ export interface paths {
         get: operations["get_settings_api_settings_get"];
         /**
          * Update Settings
-         * @description Обновить настройки зарплаты.
+         * @description Обновить настройки зарплаты (только переданные поля).
          */
         put: operations["update_settings_api_settings_put"];
         post?: never;
@@ -397,6 +402,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analytics/trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Analytics Trend
+         * @description Расходы по месяцам (и по категориям внутри каждого) за `months` месяцев,
+         *     заканчивая на (month, year) включительно — для графика тренда на
+         *     /analytics. Переиспользует db.get_expenses(), которая уже сама
+         *     проецирует повторяющиеся расходы вперёд (см. её докстринг), поэтому
+         *     здесь достаточно просто перебрать нужные периоды в цикле, без новой
+         *     SQL-логики.
+         */
+        get: operations["get_analytics_trend_api_analytics_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Backup
+         * @description Скачать копию текущей БД. Через SQLite backup API (DatabaseManager.backup_to),
+         *     а не просто отдать файл budget.db напрямую — так копия остаётся
+         *     консистентной, даже если БД в этот момент используется (WAL).
+         *
+         *     Копия читается в память и временный файл удаляется сразу же, в этом же
+         *     запросе — не через FileResponse(background=...): на Windows попытка
+         *     удалить файл из отложенной BackgroundTask иногда натыкается на
+         *     PermissionError, потому что ОС ещё не до конца освободила хендл после
+         *     стриминга ответа.
+         */
+        get: operations["download_backup_api_backup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -455,6 +513,10 @@ export interface components {
             amount: number;
             /** Color */
             color: string;
+            /** Groupid */
+            groupId?: string | null;
+            /** Monthlylimit */
+            monthlyLimit?: number | null;
         };
         /** AnalyticsSummaryResponse */
         AnalyticsSummaryResponse: {
@@ -464,6 +526,16 @@ export interface components {
             count: number;
             /** Categories */
             categories: components["schemas"]["AnalyticsCategory"][];
+        };
+        /** AnalyticsTrendResponse */
+        AnalyticsTrendResponse: {
+            /** Months */
+            months: components["schemas"]["TrendMonth"][];
+        };
+        /** AutoCreateResult */
+        AutoCreateResult: {
+            /** Created */
+            created: number;
         };
         /**
          * BalanceResponse
@@ -595,6 +667,16 @@ export interface components {
             month: number;
             /** Year */
             year: number;
+            /**
+             * Repaidamount
+             * @default 0
+             */
+            repaidAmount: number;
+            /**
+             * Remainingamount
+             * @default 0
+             */
+            remainingAmount: number;
         };
         /** ExpenseGroupCreate */
         ExpenseGroupCreate: {
@@ -604,6 +686,8 @@ export interface components {
             color: string;
             /** Parentid */
             parentId?: string | null;
+            /** Monthlylimit */
+            monthlyLimit?: number | null;
         };
         /** ExpenseGroupResponse */
         ExpenseGroupResponse: {
@@ -620,6 +704,8 @@ export interface components {
              * @default 0
              */
             sortOrder: number;
+            /** Monthlylimit */
+            monthlyLimit?: number | null;
         };
         /** ExpenseGroupUpdate */
         ExpenseGroupUpdate: {
@@ -631,6 +717,8 @@ export interface components {
             parentId?: string | null;
             /** Sortorder */
             sortOrder?: number | null;
+            /** Monthlylimit */
+            monthlyLimit?: number | null;
         };
         /** ExpenseItemCreate */
         ExpenseItemCreate: {
@@ -664,8 +752,6 @@ export interface components {
             name: string;
             /** Amount */
             amount: number;
-            /** Date */
-            date?: string | null;
             /**
              * Isinclusive
              * @default false
@@ -799,6 +885,28 @@ export interface components {
             firstHalfRatio?: number | null;
             /** Secondhalfratio */
             secondHalfRatio?: number | null;
+        };
+        /** TrendMonth */
+        TrendMonth: {
+            /** Month */
+            month: number;
+            /** Year */
+            year: number;
+            /** Total */
+            total: number;
+            /** Categories */
+            categories: components["schemas"]["TrendMonthCategory"][];
+        };
+        /** TrendMonthCategory */
+        TrendMonthCategory: {
+            /** Groupid */
+            groupId?: string | null;
+            /** Name */
+            name: string;
+            /** Color */
+            color: string;
+            /** Amount */
+            amount: number;
         };
         /** VacationCreate */
         VacationCreate: {
@@ -1055,37 +1163,6 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExpenseItemResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_expense_item_api_expense_items__item_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                item_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1426,9 +1503,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AutoCreateResult"];
                 };
             };
         };
@@ -1692,6 +1767,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_analytics_trend_api_analytics_trend_get: {
+        parameters: {
+            query: {
+                month: number;
+                year: number;
+                months?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsTrendResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_backup_api_backup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

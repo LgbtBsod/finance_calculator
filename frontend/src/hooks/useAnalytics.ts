@@ -14,3 +14,16 @@ export function useAnalyticsSummary(month: number, year: number) {
     },
   })
 }
+
+export function useAnalyticsTrend(month: number, year: number, months = 6) {
+  return useQuery({
+    queryKey: ['analytics-trend', month, year, months],
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/analytics/trend', {
+        params: { query: { month, year, months } },
+      })
+      if (error) throw new Error('Failed to load analytics trend')
+      return data
+    },
+  })
+}

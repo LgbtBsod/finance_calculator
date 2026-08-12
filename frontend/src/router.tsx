@@ -1,11 +1,13 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
-import { AnalyticsPage } from './pages/AnalyticsPage'
-import { ExpensesPage } from './pages/ExpensesPage'
-import { VacationsPage } from './pages/VacationsPage'
-import { BirthdaysPage } from './pages/BirthdaysPage'
-import { DebtsPage } from './pages/DebtsPage'
-import { SettingsPage } from './pages/SettingsPage'
+import {
+  AnalyticsPage,
+  BirthdaysPage,
+  DebtsPage,
+  ExpensesPage,
+  SettingsPage,
+  VacationsPage,
+} from './pages/lazyPages'
 
 // Баланс и ЗП больше не отдельная страница — он всегда виден в сайдбаре
 // (см. components/layout/Sidebar.tsx), поэтому индексный маршрут теперь

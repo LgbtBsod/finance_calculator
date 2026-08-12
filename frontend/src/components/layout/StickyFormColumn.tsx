@@ -29,7 +29,7 @@ export function StickyFormColumn({ form, children, className }: StickyFormColumn
   return (
     <div className={cn('flex flex-col gap-4 xl:h-full xl:min-h-0', className)}>
       <div className="flex-none">{form}</div>
-      <div className="min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">{children}</div>
+      <div className="min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-2.5">{children}</div>
     </div>
   )
 }

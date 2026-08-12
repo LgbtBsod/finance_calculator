@@ -1,25 +1,32 @@
 import type { HTMLAttributes } from 'react'
 import { cn } from '../../lib/cn'
 
-export type CardVariant = 'default' | 'success' | 'warning' | 'accent'
+export type CardVariant = 'default' | 'success' | 'warning' | 'accent' | 'danger'
 
 const VARIANT_CLASSES: Record<CardVariant, string> = {
   default: 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-inherit',
   success: 'bg-gradient-to-br from-success to-[#30b850] text-white border-none',
   warning: 'bg-gradient-to-br from-warning to-[#ff7a00] text-white border-none',
   accent: 'bg-gradient-to-br from-primary to-[#5856d6] text-white border-none',
+  danger: 'bg-gradient-to-br from-danger to-[#c9281f] text-white border-none',
 }
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant
+  /** Приподнимается на hover — только для карточек, по которым реально
+   * можно кликнуть целиком. По умолчанию выключено: раньше эффект был
+   * безусловным даже на статичных контейнерах (форма фильтров, стат-тайлы),
+   * создавая ложную affordance "сюда можно нажать". */
+  interactive?: boolean
 }
 
 /** Базовая карточка приложения — соответствует .card/.card.green/.card.orange из старого styles.css. */
-export function Card({ variant = 'default', className, children, ...rest }: CardProps) {
+export function Card({ variant = 'default', interactive = false, className, children, ...rest }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-lg p-5 shadow-card transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-card-hover',
+        'rounded-lg p-5 shadow-card transition-[transform,box-shadow]',
+        interactive && 'hover:-translate-y-0.5 hover:shadow-card-hover',
         VARIANT_CLASSES[variant],
         className,
       )}

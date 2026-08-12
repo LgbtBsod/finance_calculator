@@ -11,6 +11,10 @@ __pycache__/
 *.db-shm
 *.db-wal
 
+# Lock-файл единственного экземпляра приложения (main.py) — локальный
+# артефакт процесса, не часть проекта.
+app.lock
+
 # Frontend (Node/Vite)
 frontend/node_modules/
 frontend/dist/

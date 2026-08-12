@@ -1,25 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { components } from '../api/client'
 import { apiClient } from '../api/client'
+import { extractErrorMessage } from '../lib/apiError'
 import { queryKeys } from '../lib/queryClient'
 
 export type VacationCreateInput = components['schemas']['VacationCreate']
-
-/** Достаёт человекочитаемое сообщение из ошибки FastAPI ({ detail: string | ValidationError[] }). */
-function extractErrorMessage(error: unknown, fallback: string): string {
-  if (error && typeof error === 'object' && 'detail' in error) {
-    const detail = (error as { detail?: unknown }).detail
-    if (typeof detail === 'string' && detail.length > 0) return detail
-  }
-  return fallback
-}
 
 export function useVacations() {
   return useQuery({
     queryKey: queryKeys.vacations,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/api/vacations', {})
-      if (error) throw new Error('Не удалось загрузить отпускные')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось загрузить отпускные'))
       return data
     },
   })

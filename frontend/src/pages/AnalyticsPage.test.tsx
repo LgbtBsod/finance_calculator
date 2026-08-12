@@ -44,13 +44,51 @@ const SAMPLE_SUMMARY = {
   ],
 }
 
+// Имена категорий отличаются от SAMPLE_SUMMARY специально — иначе легенда
+// SpendingTrendChart дублирует текст "Еда"/"Транспорт" из списка категорий
+// на той же странице, и getByText() падает на "нашёл несколько элементов".
+const SAMPLE_TREND = {
+  months: [
+    { month: 6, year: 2026, total: 30000, categories: [{ groupId: null, name: 'Такси', color: '#ff6b6b', amount: 30000 }] },
+    { month: 7, year: 2026, total: 45000, categories: [{ groupId: null, name: 'Такси', color: '#ff6b6b', amount: 45000 }] },
+  ],
+}
+
+// /api/analytics/summary и /api/analytics/trend возвращают разные формы
+// данных ({categories: [...]} vs {months: [...]}) — единый mockResolvedValue
+// на любой путь подсовывал бы тренд-графику форму summary и ронял её
+// (месяцы — не итерируемы).
+function mockGetByPath(overrides: Record<string, unknown> = {}) {
+  mockGET.mockImplementation(((path: string) => {
+    if (path === '/api/analytics/summary') {
+      return Promise.resolve({
+        data: overrides.summary ?? SAMPLE_SUMMARY,
+        error: undefined,
+        response: new Response(),
+      })
+    }
+    if (path === '/api/analytics/trend') {
+      return Promise.resolve({
+        data: overrides.trend ?? SAMPLE_TREND,
+        error: undefined,
+        response: new Response(),
+      })
+    }
+    return Promise.resolve({
+      data: undefined,
+      error: { detail: `unexpected path ${path}` },
+      response: new Response(),
+    })
+  }) as unknown as typeof apiClient.GET)
+}
+
 describe('AnalyticsPage', () => {
   beforeEach(() => {
     mockGET.mockReset()
   })
 
   it('renders the loaded summary and category list', async () => {
-    mockGET.mockResolvedValue({ data: SAMPLE_SUMMARY, error: undefined, response: new Response() })
+    mockGetByPath()
 
     const { container } = renderPage()
 
@@ -68,11 +106,7 @@ describe('AnalyticsPage', () => {
   })
 
   it('shows the empty state when there are no categories', async () => {
-    mockGET.mockResolvedValue({
-      data: { total: 0, count: 0, categories: [] },
-      error: undefined,
-      response: new Response(),
-    })
+    mockGetByPath({ summary: { total: 0, count: 0, categories: [] } })
 
     renderPage()
 
@@ -92,7 +126,7 @@ describe('AnalyticsPage', () => {
   })
 
   it('refetches with updated query params when the period changes', async () => {
-    mockGET.mockResolvedValue({ data: SAMPLE_SUMMARY, error: undefined, response: new Response() })
+    mockGetByPath()
     const user = userEvent.setup()
 
     renderPage()
@@ -103,12 +137,16 @@ describe('AnalyticsPage', () => {
 
     await screen.findByText(HEADING)
     expect(mockGET.mock.calls.length).toBeGreaterThan(callsBeforeChange)
-    const lastCall = mockGET.mock.calls[mockGET.mock.calls.length - 1]
-    expect(lastCall[1]).toEqual({ params: { query: { month: expect.any(Number), year: 2027 } } })
+    // Два запроса (summary + trend) уходят на каждую смену периода — берём
+    // последний именно к /api/analytics/summary, а не "последний вызов
+    // вообще" (им может оказаться trend, с другой формой query-параметров).
+    const summaryCalls = mockGET.mock.calls.filter((call) => call[0] === '/api/analytics/summary')
+    const lastSummaryCall = summaryCalls[summaryCalls.length - 1]
+    expect(lastSummaryCall[1]).toEqual({ params: { query: { month: expect.any(Number), year: 2027 } } })
   })
 
   it('triggers another fetch when clicking the manual refresh button', async () => {
-    mockGET.mockResolvedValue({ data: SAMPLE_SUMMARY, error: undefined, response: new Response() })
+    mockGetByPath()
     const user = userEvent.setup()
 
     renderPage()

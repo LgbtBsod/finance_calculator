@@ -16,7 +16,6 @@ from models import (
     CalendarRow,
     CorrectionRow,
     ExpenseRow,
-    MemoRow,
     VacationRow,
 )
 
@@ -32,6 +31,15 @@ class DatabaseManager:
 
     Каждый метод возвращает TypedDict или list[TypedDict],
     а не сырой dict — потребители получают автодополнение полей.
+
+    Конкурентный доступ: оптимистическая блокировка (version/row-versioning
+    для конфликтов при одновременном редактировании) сознательно НЕ
+    реализована. Если два клиента (например, две открытые вкладки браузера)
+    правят одну и ту же запись одновременно, побеждает тот, кто записал
+    последним (last-write-wins) — конфликт версий не обнаруживается и не
+    показывается пользователю. Это принятое ограничение, а не недосмотр:
+    приложение — однопользовательский локальный десктопный инструмент, и
+    такой сценарий на практике не возникает.
     """
 
     def __init__(self, db_path: str = "budget.db") -> None:
@@ -52,6 +60,12 @@ class DatabaseManager:
         c.row_factory = sqlite3.Row
         if not is_memory:
             c.execute("PRAGMA journal_mode=WAL")
+            # Если два процесса (например, run.bat запущен дважды) держат
+            # файл одновременно, короткое ожидание блокировки вместо
+            # немедленного "database is locked" — на локальном приложении
+            # почти всегда достаточно нескольких секунд, чтобы конкурентная
+            # запись успела закончиться сама.
+            c.execute("PRAGMA busy_timeout=8000")
         c.execute("PRAGMA foreign_keys=ON")
         if is_memory:
             self._conn_cache = c
@@ -89,11 +103,12 @@ class DatabaseManager:
             c.executescript("""
                 -- Группы расходов (для категоризации)
                 CREATE TABLE IF NOT EXISTS expense_groups (
-                    id          TEXT    PRIMARY KEY,
-                    name        TEXT    NOT NULL,
-                    color       TEXT    NOT NULL,
-                    parent_id   TEXT,
-                    sort_order  INTEGER NOT NULL DEFAULT 0
+                    id            TEXT    PRIMARY KEY,
+                    name          TEXT    NOT NULL,
+                    color         TEXT    NOT NULL,
+                    parent_id     TEXT,
+                    sort_order    INTEGER NOT NULL DEFAULT 0,
+                    monthly_limit REAL
                 );
 
                 -- Настройки (ключ-значение)
@@ -139,14 +154,6 @@ class DatabaseManager:
                     FOREIGN KEY (group_id) REFERENCES expense_groups(id)
                 );
 
-                -- Памятка (НЕ влияет на баланс)
-                CREATE TABLE IF NOT EXISTS memo_expenses (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name        TEXT    NOT NULL,
-                    amount      REAL    NOT NULL DEFAULT 0.0,
-                    target_date TEXT
-                );
-
                 -- Отпускные
                 CREATE TABLE IF NOT EXISTS vacations (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -175,6 +182,11 @@ class DatabaseManager:
                     note      TEXT,
                     FOREIGN KEY (debt_id) REFERENCES debts(id) ON DELETE CASCADE
                 );
+
+                -- Расходы почти всегда фильтруются по (year, month); погашения
+                -- долга — по debt_id (см. get_expenses/get_debts).
+                CREATE INDEX IF NOT EXISTS idx_expenses_year_month ON expenses(year, month);
+                CREATE INDEX IF NOT EXISTS idx_debt_repayments_debt_id ON debt_repayments(debt_id);
             """)
             c.commit()
             self._migrate_schema(c)
@@ -203,6 +215,13 @@ class DatabaseManager:
         }
         if "recurring_until" not in expense_cols:
             c.execute("ALTER TABLE expenses ADD COLUMN recurring_until TEXT")
+
+        group_cols = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(expense_groups)").fetchall()
+        }
+        if "monthly_limit" not in group_cols:
+            c.execute("ALTER TABLE expense_groups ADD COLUMN monthly_limit REAL")
 
         c.commit()
 
@@ -248,15 +267,6 @@ class DatabaseManager:
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 (key, str(value)),
             )
-
-    def get_all_settings(self) -> dict[str, str]:
-        with self._transaction() as c:
-            return {
-                r["key"]: r["value"]
-                for r in c.execute(
-                    "SELECT key, value FROM settings"
-                ).fetchall()
-            }
 
     # ═════════════════════════════════════════════════════════
     #  CALENDAR DATA (кэш)
@@ -323,34 +333,30 @@ class DatabaseManager:
                     rows,
                 )
 
-    def get_corrections_for_year(self, year: int) -> list[CorrectionRow]:
-        with self._transaction() as c:
-            rows = c.execute(
-                "SELECT date, kind, source FROM calendar_corrections "
-                "WHERE date LIKE ? ORDER BY date",
-                (f"{year}-%",),
-            ).fetchall()
-            return [CorrectionRow(**dict(r)) for r in rows]
-
     # ═════════════════════════════════════════════════════════
     #  BIRTHDAYS
     # ═════════════════════════════════════════════════════════
 
     def add_birthday(
         self, name: str, birth_date: str, gift_amount: float
-    ) -> None:
+    ) -> int:
         with self._transaction() as c:
-            c.execute(
+            cursor = c.execute(
                 "INSERT INTO birthdays (name, birth_date, gift_amount) "
                 "VALUES (?,?,?)",
                 (name, birth_date, gift_amount),
             )
+            return cursor.lastrowid
 
     def get_birthdays(self) -> list[BirthdayRow]:
         with self._transaction() as c:
+            # birth_date хранится как "ДД.ММ.ГГГГ" (год — заглушка, см.
+            # buildBirthDateForApi во фронтенде) — сортировка по строке
+            # целиком была бы лексикографической (сначала по дню, а не по
+            # месяцу), поэтому явно сортируем по месяцу, затем по дню.
             rows = c.execute(
-                "SELECT id, name, birth_date, gift_amount "
-                "FROM birthdays ORDER BY birth_date"
+                "SELECT id, name, birth_date, gift_amount FROM birthdays "
+                "ORDER BY substr(birth_date, 4, 2), substr(birth_date, 1, 2)"
             ).fetchall()
             return [BirthdayRow(**dict(r)) for r in rows]
 
@@ -387,9 +393,9 @@ class DatabaseManager:
         is_inclusive: bool = False,
         group_id: str | None = None,
         recurring_until: str | None = None,
-    ) -> None:
+    ) -> int:
         with self._transaction() as c:
-            c.execute(
+            cursor = c.execute(
                 "INSERT INTO expenses "
                 "(name,amount,half,month,year,is_recurring,is_inclusive,group_id,recurring_until) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
@@ -398,6 +404,7 @@ class DatabaseManager:
                     int(is_recurring), int(is_inclusive), group_id, recurring_until,
                 ),
             )
+            return cursor.lastrowid
 
     def get_expenses(
         self,
@@ -463,15 +470,16 @@ class DatabaseManager:
         amount: float | None = None,
         half: int | None = None,
         is_recurring: bool | None = None,
-        group_id: str | None = None,
+        group_id: str | None | object = _UNSET,
         recurring_until: str | None | object = _UNSET,
     ) -> None:
         """Обновить расход с частичным обновлением полей (PATCH semantics).
 
-        recurring_until — трёхзначное поле: значение по умолчанию `_UNSET`
-        означает "не менять", а явно переданный `None` — "снять дату
-        завершения повторения" (отличить "не передали" от "передали пустое"
-        обычным None-дефолтом здесь нельзя, т.к. очистка даты — тоже None).
+        group_id/recurring_until — трёхзначные поля: значение по умолчанию
+        `_UNSET` означает "не менять", а явно переданный `None` — "снять
+        группу"/"снять дату завершения повторения" (отличить "не передали"
+        от "передали пустое" обычным None-дефолтом нельзя, т.к. очистка —
+        тоже None).
         """
         with self._transaction() as c:
             # Получаем текущие значения
@@ -489,7 +497,7 @@ class DatabaseManager:
             new_amount = amount if amount is not None else current["amount"]
             new_half = half if half is not None else current["half"]
             new_is_recurring = is_recurring if is_recurring is not None else bool(current["is_recurring"])
-            new_group_id = group_id if group_id is not None else current["group_id"]
+            new_group_id = current["group_id"] if group_id is _UNSET else group_id
             new_recurring_until = (
                 current["recurring_until"] if recurring_until is _UNSET else recurring_until
             )
@@ -504,32 +512,6 @@ class DatabaseManager:
             )
 
     # ═════════════════════════════════════════════════════════
-    #  MEMO EXPENSES (памятка)
-    # ═════════════════════════════════════════════════════════
-
-    def add_memo_expense(
-        self, name: str, amount: float, target_date: str
-    ) -> None:
-        with self._transaction() as c:
-            c.execute(
-                "INSERT INTO memo_expenses (name, amount, target_date) "
-                "VALUES (?,?,?)",
-                (name, amount, target_date),
-            )
-
-    def get_memo_expenses(self) -> list[MemoRow]:
-        with self._transaction() as c:
-            rows = c.execute(
-                "SELECT id, name, amount, target_date "
-                "FROM memo_expenses ORDER BY target_date"
-            ).fetchall()
-            return [MemoRow(**dict(r)) for r in rows]
-
-    def delete_memo_expense(self, mid: int) -> None:
-        with self._transaction() as c:
-            c.execute("DELETE FROM memo_expenses WHERE id=?", (mid,))
-
-    # ═════════════════════════════════════════════════════════
     #  VACATIONS
     # ═════════════════════════════════════════════════════════
 
@@ -539,13 +521,14 @@ class DatabaseManager:
         payout_date: str,
         start_date: str | None = None,
         end_date: str | None = None,
-    ) -> None:
+    ) -> int:
         with self._transaction() as c:
-            c.execute(
+            cursor = c.execute(
                 "INSERT INTO vacations (total_amount, payout_date, start_date, end_date) "
                 "VALUES (?,?,?,?)",
                 (total_amount, payout_date, start_date or payout_date, end_date or payout_date),
             )
+            return cursor.lastrowid
 
     def get_vacations(
         self,
@@ -583,18 +566,19 @@ class DatabaseManager:
         color: str,
         parent_id: str | None = None,
         sort_order: int = 0,
+        monthly_limit: float | None = None,
     ) -> None:
         with self._transaction() as c:
             c.execute(
-                "INSERT INTO expense_groups (id, name, color, parent_id, sort_order) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (group_id, name, color, parent_id, sort_order),
+                "INSERT INTO expense_groups (id, name, color, parent_id, sort_order, monthly_limit) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (group_id, name, color, parent_id, sort_order, monthly_limit),
             )
 
     def get_expense_groups(self) -> list[dict]:
         with self._transaction() as c:
             rows = c.execute(
-                "SELECT id, name, color, parent_id, sort_order "
+                "SELECT id, name, color, parent_id, sort_order, monthly_limit "
                 "FROM expense_groups ORDER BY sort_order, name"
             ).fetchall()
             return [dict(r) for r in rows]
@@ -602,7 +586,7 @@ class DatabaseManager:
     def get_expense_group(self, group_id: str) -> dict | None:
         with self._transaction() as c:
             row = c.execute(
-                "SELECT id, name, color, parent_id, sort_order "
+                "SELECT id, name, color, parent_id, sort_order, monthly_limit "
                 "FROM expense_groups WHERE id=?",
                 (group_id,),
             ).fetchone()
@@ -613,9 +597,14 @@ class DatabaseManager:
         group_id: str,
         name: str | None = None,
         color: str | None = None,
-        parent_id: str | None = None,
+        parent_id: str | None | object = _UNSET,
         sort_order: int | None = None,
+        monthly_limit: float | None | object = _UNSET,
     ) -> None:
+        """parent_id/monthly_limit — трёхзначные поля (см. update_expense):
+        `_UNSET` по умолчанию значит "не менять", явный `None` — "снять
+        значение" (нужно, например, чтобы разгруппировать подкатегорию или
+        убрать лимит у группы)."""
         with self._transaction() as c:
             updates = []
             values = []
@@ -625,12 +614,15 @@ class DatabaseManager:
             if color is not None:
                 updates.append("color=?")
                 values.append(color)
-            if parent_id is not None:
+            if parent_id is not _UNSET:
                 updates.append("parent_id=?")
                 values.append(parent_id)
             if sort_order is not None:
                 updates.append("sort_order=?")
                 values.append(sort_order)
+            if monthly_limit is not _UNSET:
+                updates.append("monthly_limit=?")
+                values.append(monthly_limit)
             if updates:
                 values.append(group_id)
                 c.execute(
@@ -674,15 +666,20 @@ class DatabaseManager:
                 "(SELECT COALESCE(SUM(r.amount), 0) FROM debt_repayments r WHERE r.debt_id = d.id) as repaid_amount "
                 "FROM debts d ORDER BY d.year, d.month, d.created_at"
             ).fetchall()
+            # Один запрос всех погашений сразу, а не по одному на каждый
+            # долг в цикле (N+1) — группируем в Python по debt_id.
+            all_repayments = c.execute(
+                "SELECT id, debt_id, amount, date, note FROM debt_repayments ORDER BY date"
+            ).fetchall()
+            repayments_by_debt: dict[int, list[dict]] = {}
+            for r in all_repayments:
+                repayments_by_debt.setdefault(r["debt_id"], []).append(dict(r))
+
             debts = []
             for row in rows:
                 debt = dict(row)
-                # Get repayments for this debt
-                repayments = c.execute(
-                    "SELECT id, debt_id, amount, date, note FROM debt_repayments WHERE debt_id=? ORDER BY date",
-                    (debt['id'],)
-                ).fetchall()
-                debt['repayments'] = [dict(r) for r in repayments]
+                debt["remaining_amount"] = max(0.0, debt["total_amount"] - debt["repaid_amount"])
+                debt["repayments"] = repayments_by_debt.get(debt["id"], [])
                 debts.append(debt)
             return debts
 
@@ -696,17 +693,40 @@ class DatabaseManager:
         amount: float,
         date: str,
         note: str | None = None,
-    ) -> None:
+    ) -> int:
         with self._transaction() as c:
-            c.execute(
+            cursor = c.execute(
                 "INSERT INTO debt_repayments (debt_id, amount, date, note) "
                 "VALUES (?, ?, ?, ?)",
                 (debt_id, amount, date, note),
             )
+            return cursor.lastrowid
 
     def delete_debt_repayment(self, repayment_id: int) -> None:
         with self._transaction() as c:
             c.execute("DELETE FROM debt_repayments WHERE id=?", (repayment_id,))
+
+    # ═════════════════════════════════════════════════════════
+    #  BACKUP
+    # ═════════════════════════════════════════════════════════
+
+    def backup_to(self, target_path: str) -> None:
+        """Безопасная копия БД через SQLite backup API — в отличие от
+        обычного копирования файла, не заденет незакоммиченные страницы
+        WAL и не конфликтует с другим процессом, который сейчас пишет
+        в тот же файл.
+
+        `with sqlite3.connect(...) as target` управляет только транзакцией
+        (commit/rollback), а НЕ закрывает соединение сам — без явного
+        target.close() файловый хендл остаётся открытым, и на Windows
+        последующее удаление временного файла падает с PermissionError.
+        """
+        target = sqlite3.connect(target_path)
+        try:
+            self._conn().backup(target)
+            target.commit()  # на всякий случай — backup() коммитит сам, но явный commit() дешёв
+        finally:
+            target.close()
 
 
 # ── helper: правильно конвертировать sqlite3.Row -> ExpenseRow ──

@@ -65,7 +65,8 @@ export function SettingsPage() {
   const onSubmit = (values: SettingsFormValues) => {
     updateMutation.mutate(values, {
       onSuccess: () => showToast('Настройки сохранены', 'success'),
-      onError: () => showToast('Не удалось сохранить настройки', 'error'),
+      onError: (error) =>
+        showToast(error instanceof Error ? error.message : 'Не удалось сохранить настройки', 'error'),
     })
   }
 
@@ -195,6 +196,27 @@ export function SettingsPage() {
           </section>
         </form>
       )}
+
+      <section>
+        <h2 className="mb-4 text-xl font-semibold">Резервное копирование</h2>
+        <Card variant="default" className="space-y-3 p-5">
+          <p className="text-sm text-gray-500">
+            Все расходы, долги, дни рождения и отпускные хранятся в одном файле на этом
+            компьютере — без отдельной копии их можно потерять при сбое диска. Скачайте копию
+            и сохраните её отдельно (облако, флешка) на случай, если что-то случится с этим
+            компьютером.
+          </p>
+          {/* Обычная ссылка на GET-эндпоинт, а не fetch+blob в JS — ответ уже
+              приходит с Content-Disposition: attachment, браузер сохранит файл сам. */}
+          <a
+            href="/api/backup"
+            download
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-[15px] font-semibold text-white transition-transform hover:bg-primary-hover active:scale-[0.97] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-primary/40"
+          >
+            ⬇️ Скачать резервную копию
+          </a>
+        </Card>
+      </section>
     </div>
   )
 }

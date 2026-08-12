@@ -34,6 +34,7 @@ export function NavTabs() {
           className={({ isActive }) =>
             cn(
               'flex-1 rounded-full px-4 py-2.5 text-center text-[15px] font-medium whitespace-nowrap transition-colors',
+              'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-primary/40',
               isActive
                 ? 'bg-white text-primary shadow-card dark:bg-gray-900'
                 : 'text-gray-500 hover:bg-black/5 hover:text-gray-900 dark:hover:text-gray-100',

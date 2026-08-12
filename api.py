@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import tempfile
+import threading
 import uuid
 from collections.abc import Generator
 from datetime import date, datetime
@@ -23,7 +25,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -39,14 +41,33 @@ __all__ = ["app"]
 #  DEPENDENCY INJECTION (SSOT, DRY)
 # ═══════════════════════════════════════════════════════════════
 
+# Один DatabaseManager на весь процесс, а не на каждый запрос: раньше
+# get_db() создавал новый DatabaseManager (а значит — заново гонял полную
+# схему/миграции/сиды настроек, database.py._init_db) на КАЖДЫЙ HTTP-запрос
+# ко всем /api/* эндпоинтам. Кэшируем по db_path (в тестах get_db целиком
+# подменяется через dependency_overrides, поэтому этот кэш там не участвует
+# и никогда не трогает реальный budget.db).
+_db_instances: dict[str, DatabaseManager] = {}
+# Все /api/* эндпоинты — обычные def (см. историю правок), поэтому FastAPI
+# диспетчеризует их в реальный threadpool: несколько запросов могут
+# по-настоящему параллельно попасть в check-then-create ниже. Без лока два
+# потока одновременно решат, что DatabaseManager ещё не создан, и оба
+# запустят DatabaseManager.__init__ -> _init_db -> _migrate_schema, где
+# "ALTER TABLE ... ADD COLUMN" не идемпотентен (в SQLite нет ADD COLUMN IF
+# NOT EXISTS) — второй вызов упадёт с OperationalError "duplicate column
+# name". Двойная проверка (double-checked locking): лок берём только на
+# самое первое создание, а не на каждый запрос.
+_db_instances_lock = threading.Lock()
+
+
 def get_db() -> Generator[DatabaseManager, None, None]:
-    """Factory для DatabaseManager (DI container) с закрытием соединения."""
+    """Factory для DatabaseManager (DI container) — один экземпляр на путь к БД."""
     settings = get_app_settings()
-    db = DatabaseManager(settings.db_path)
-    try:
-        yield db
-    finally:
-        db.close()
+    if settings.db_path not in _db_instances:
+        with _db_instances_lock:
+            if settings.db_path not in _db_instances:
+                _db_instances[settings.db_path] = DatabaseManager(settings.db_path)
+    yield _db_instances[settings.db_path]
 
 
 def get_calendar_service(db: DatabaseManager = Depends(get_db)) -> CalendarService:
@@ -87,6 +108,9 @@ class ExpenseGroupCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     color: str = Field(..., pattern=r'^#[0-9A-Fa-f]{6}$')
     parentId: str | None = None
+    # Необязательный месячный лимит расходов по группе — используется
+    # аналитикой, чтобы подсветить превышение (см. AnalyticsPage).
+    monthlyLimit: float | None = Field(None, gt=0)
 
 
 class ExpenseGroupUpdate(BaseModel):
@@ -94,6 +118,7 @@ class ExpenseGroupUpdate(BaseModel):
     color: str | None = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
     parentId: str | None = None
     sortOrder: int | None = None
+    monthlyLimit: float | None = Field(None, gt=0)
 
 
 class ExpenseGroupResponse(BaseModel):
@@ -102,6 +127,7 @@ class ExpenseGroupResponse(BaseModel):
     color: str
     parentId: str | None = None
     sortOrder: int = 0
+    monthlyLimit: float | None = None
 
 
 class ExpenseItemCreate(BaseModel):
@@ -131,7 +157,6 @@ class ExpenseItemResponse(BaseModel):
     groupId: str | None = None
     name: str
     amount: float
-    date: str | None = None
     isInclusive: bool = False
     half: int
     isRecurring: bool
@@ -169,6 +194,15 @@ class DebtResponse(BaseModel):
     createdAt: str
     month: int
     year: int
+    # Backend — единственный источник правды по остатку долга (считался
+    # в SQL и раньше, но терялся при сборке ответа — фронтенду приходилось
+    # пересчитывать то же самое из repayments самостоятельно).
+    repaidAmount: float = 0.0
+    remainingAmount: float = 0.0
+
+
+class AutoCreateResult(BaseModel):
+    created: int
 
 
 class DebtSettings(BaseModel):
@@ -271,6 +305,10 @@ class AnalyticsCategory(BaseModel):
     name: str
     amount: float
     color: str
+    # groupId=None -> категория "Без группы" — по нему фронтенд ищет лимит
+    # (ExpenseGroupResponse.monthlyLimit) для подсветки превышения.
+    groupId: str | None = None
+    monthlyLimit: float | None = None
 
 
 class AnalyticsSummaryResponse(BaseModel):
@@ -279,20 +317,46 @@ class AnalyticsSummaryResponse(BaseModel):
     categories: list[AnalyticsCategory]
 
 
+class TrendMonthCategory(BaseModel):
+    groupId: str | None = None
+    name: str
+    color: str
+    amount: float
+
+
+class TrendMonth(BaseModel):
+    month: int
+    year: int
+    total: float
+    categories: list[TrendMonthCategory]
+
+
+class AnalyticsTrendResponse(BaseModel):
+    # В хронологическом порядке (старый -> новый) — фронтенду так удобнее
+    # рисовать столбцы слева направо, не разворачивая массив самому.
+    months: list[TrendMonth]
+
+
 class SalarySettingsUpdate(BaseModel):
-    baseSalary: float | None = None
-    taxRate: float | None = None
-    kef: float | None = None
-    advanceCutoffDay: int | None = None
+    # Границы зеркалят zod-схему SettingsPage.tsx — та защищает только UI;
+    # без этих же Field(...) прямой PUT мимо формы (curl, будущий клиент)
+    # мог записать taxRate=500 или отрицательную зарплату без какой-либо
+    # проверки на сервере.
+    baseSalary: float | None = Field(None, gt=0)
+    taxRate: float | None = Field(None, ge=0, le=100)
+    kef: float | None = Field(None, gt=0)
+    advanceCutoffDay: int | None = Field(None, ge=1, le=31)
     isAdvanceDateInclusive: bool | None = None
     accountShortened: bool | None = None
-    standardHours: int | None = None
-    payoutDay1: int | None = None
-    payoutDay2: int | None = None
+    standardHours: int | None = Field(None, gt=0)
+    payoutDay1: int | None = Field(None, ge=1, le=31)
+    payoutDay2: int | None = Field(None, ge=1, le=31)
     moveWeekendToFriday: bool | None = None
-    salaryCalculationMethod: str | None = None
-    firstHalfRatio: float | None = None
-    secondHalfRatio: float | None = None
+    salaryCalculationMethod: str | None = Field(
+        None, pattern=r"^(proportional|custom_proportions|working_days)$"
+    )
+    firstHalfRatio: float | None = Field(None, ge=0, le=1)
+    secondHalfRatio: float | None = Field(None, ge=0, le=1)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -307,10 +371,22 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
+# В продакшене frontend и API — один и тот же процесс/порт (main.py
+# отдаёт frontend/dist из этого же api.py), там CORS не нужен вовсе —
+# same-origin. CORS реально нужен только для dev-сценария (Vite на 5173
+# ходит на API на 8000/8420). allow_origins=["*"] + allow_credentials=True
+# (как было раньше) — это не безвредный wildcard: Starlette в этом
+# сочетании отражает Origin запроса обратно с Access-Control-Allow-Credentials,
+# то есть по факту "любой источник с куками/авторизацией". Ни кук, ни
+# авторизации в приложении нет, поэтому credentials выключаем, а origins
+# сужаем до реальных dev-адресов.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -320,99 +396,96 @@ app.add_middleware(
 #  EXPENSE GROUPS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
+def _group_to_response(g: dict) -> ExpenseGroupResponse:
+    return ExpenseGroupResponse(
+        id=g["id"],
+        name=g["name"],
+        color=g["color"],
+        parentId=g["parent_id"],
+        sortOrder=g["sort_order"],
+        monthlyLimit=g.get("monthly_limit"),
+    )
+
+
 @app.get("/api/expense-groups", response_model=list[ExpenseGroupResponse])
-async def get_expense_groups(db: DatabaseManager = Depends(get_db)):
+def get_expense_groups(db: DatabaseManager = Depends(get_db)):
     """Получить все группы расходов."""
-    groups = db.get_expense_groups()
-    return [
-        ExpenseGroupResponse(
-            id=g["id"],
-            name=g["name"],
-            color=g["color"],
-            parentId=g["parent_id"],
-            sortOrder=g["sort_order"]
-        )
-        for g in groups
-    ]
+    return [_group_to_response(g) for g in db.get_expense_groups()]
 
 
 @app.post("/api/expense-groups", response_model=ExpenseGroupResponse, status_code=201)
-async def create_expense_group(
+def create_expense_group(
     data: ExpenseGroupCreate,
     db: DatabaseManager = Depends(get_db),
 ):
     """Создать новую группу расходов."""
-    match data.parentId:
-        case None:
-            group_id = str(uuid.uuid4())
-        case pid:
-            group_id = pid
+    # Регрессия: раньше при заданном parentId он ошибочно использовался и
+    # как parent_id, И как собственный id новой группы (`case pid: group_id
+    # = pid`) — вторая созданная подкатегория с тем же родителем падала с
+    # UNIQUE constraint failed, потому что её id совпадал с id родителя.
+    group_id = str(uuid.uuid4())
     db.create_expense_group(
         group_id=group_id,
         name=data.name,
         color=data.color,
         parent_id=data.parentId,
-        sort_order=0
+        sort_order=0,
+        monthly_limit=data.monthlyLimit,
     )
     return ExpenseGroupResponse(
         id=group_id,
         name=data.name,
         color=data.color,
         parentId=data.parentId,
-        sortOrder=0
+        sortOrder=0,
+        monthlyLimit=data.monthlyLimit,
     )
 
 
 @app.get("/api/expense-groups/{group_id}", response_model=ExpenseGroupResponse)
-async def get_expense_group(
+def get_expense_group(
     group_id: str,
     db: DatabaseManager = Depends(get_db),
 ):
     """Получить группу расходов по ID."""
     group = db.get_expense_group(group_id)
-    match group:
-        case None:
-            raise HTTPException(status_code=404, detail="Group not found")
-        case g:
-            return ExpenseGroupResponse(
-                id=g["id"],
-                name=g["name"],
-                color=g["color"],
-                parentId=g["parent_id"],
-                sortOrder=g["sort_order"]
-            )
+    if group is None:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return _group_to_response(group)
 
 
 @app.put("/api/expense-groups/{group_id}", response_model=ExpenseGroupResponse)
-async def update_expense_group(
+def update_expense_group(
     group_id: str,
     data: ExpenseGroupUpdate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Обновить группу расходов."""
-    db.update_expense_group(
+    """Обновить группу расходов (partial update).
+
+    parentId/monthlyLimit — трёхзначные поля (см. DatabaseManager.update_expense_group):
+    передаём их в БД только если клиент явно включил ключ в JSON — иначе
+    null (снять родителя/лимит) неотличим от "поле не передавали".
+    """
+    update_kwargs: dict = dict(
         group_id=group_id,
         name=data.name,
         color=data.color,
-        parent_id=data.parentId,
-        sort_order=data.sortOrder
+        sort_order=data.sortOrder,
     )
+    if "parentId" in data.model_fields_set:
+        update_kwargs["parent_id"] = data.parentId
+    if "monthlyLimit" in data.model_fields_set:
+        update_kwargs["monthly_limit"] = data.monthlyLimit
+    db.update_expense_group(**update_kwargs)
+
     group = db.get_expense_group(group_id)
-    match group:
-        case None:
-            raise HTTPException(status_code=404, detail="Group not found")
-        case g:
-            return ExpenseGroupResponse(
-                id=g["id"],
-                name=g["name"],
-                color=g["color"],
-                parentId=g["parent_id"],
-                sortOrder=g["sort_order"]
-            )
+    if group is None:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return _group_to_response(group)
 
 
 @app.delete("/api/expense-groups/{group_id}", status_code=204)
-async def delete_expense_group(
+def delete_expense_group(
     group_id: str,
     db: DatabaseManager = Depends(get_db),
 ):
@@ -425,39 +498,50 @@ async def delete_expense_group(
 #  EXPENSE ITEMS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
+def _expense_to_response(e: dict) -> ExpenseItemResponse:
+    return ExpenseItemResponse(
+        id=str(e["id"]),
+        groupId=e.get("group_id"),
+        name=e["name"],
+        amount=e["amount"],
+        isInclusive=e.get("is_inclusive", False),
+        half=e.get("half", 1),
+        isRecurring=e.get("is_recurring", False),
+        recurringUntil=e.get("recurring_until"),
+        month=e["month"],
+        year=e["year"],
+    )
+
+
+def _validate_iso_date(value: str, field_name: str) -> None:
+    try:
+        date.fromisoformat(value)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400, detail=f"{field_name}: неверный формат даты. Используйте YYYY-MM-DD"
+        ) from e
+
+
 @app.get("/api/expense-items", response_model=list[ExpenseItemResponse])
-async def get_expense_items(
+def get_expense_items(
     month: int | None = Query(None, ge=1, le=12, description="Месяц (1-12)"),
     year: int | None = Query(None, ge=2020, le=2100, description="Год (2020-2100)"),
     db: DatabaseManager = Depends(get_db),
 ):
     """Получить расходы с фильтрацией по месяцу/году."""
-    expenses = db.get_expenses(month=month, year=year)
-    return [
-        ExpenseItemResponse(
-            id=str(e.get("id", uuid.uuid4())),
-            groupId=e.get("group_id", "default"),
-            name=e["name"],
-            amount=e["amount"],
-            date=e.get("date", date.today()).isoformat() if isinstance(e.get("date"), date) else str(e.get("date", date.today())),
-            isInclusive=e.get("is_inclusive", False),
-            half=e.get("half", 1),
-            isRecurring=e.get("is_recurring", False),
-            recurringUntil=e.get("recurring_until"),
-            month=e["month"],
-            year=e["year"]
-        )
-        for e in expenses
-    ]
+    return [_expense_to_response(e) for e in db.get_expenses(month=month, year=year)]
 
 
 @app.post("/api/expense-items", response_model=ExpenseItemResponse, status_code=201)
-async def create_expense_item(
+def create_expense_item(
     data: ExpenseItemCreate,
     db: DatabaseManager = Depends(get_db),
 ):
     """Создать новый расход с валидацией через ExpenseItemCreate."""
-    db.add_expense(
+    if data.recurringUntil is not None:
+        _validate_iso_date(data.recurringUntil, "recurringUntil")
+
+    new_id = db.add_expense(
         name=data.name,
         amount=data.amount,
         month=data.month,
@@ -467,127 +551,75 @@ async def create_expense_item(
         group_id=data.groupId,
         recurring_until=data.recurringUntil,
     )
-    # Возвращаем созданную запись
-    expenses = db.get_expenses(month=data.month, year=data.year)
-    last_expense = expenses[-1] if expenses else {}
     return ExpenseItemResponse(
-        id=str(last_expense.get("id", uuid.uuid4())),
+        id=str(new_id),
         groupId=data.groupId,
         name=data.name,
         amount=data.amount,
-        date=date.today().isoformat(),
         isInclusive=False,
         half=data.half,
         isRecurring=data.isRecurring,
         recurringUntil=data.recurringUntil,
         month=data.month,
-        year=data.year
+        year=data.year,
     )
 
 
-@app.get("/api/expense-items/{item_id}", response_model=ExpenseItemResponse)
-async def get_expense_item(
-    item_id: str,
-    db: DatabaseManager = Depends(get_db),
-):
-    """Получить расход по ID."""
-    try:
-        eid = int(item_id)
-        all_expenses = db.get_expenses()
-        for expense in all_expenses:
-            match expense["id"] == eid:
-                case True:
-                    return ExpenseItemResponse(
-                        id=str(eid),
-                        groupId=None,
-                        name=expense["name"],
-                        amount=expense["amount"],
-                        date=None,
-                        isInclusive=False,
-                        half=expense["half"],
-                        isRecurring=expense["is_recurring"],
-                        recurringUntil=expense.get("recurring_until"),
-                        month=expense["month"],
-                        year=expense["year"]
-                    )
-                case False:
-                    pass
-    except Exception:
-        pass
-    raise HTTPException(status_code=404, detail="Expense item not found")
-
-
 @app.put("/api/expense-items/{item_id}", response_model=ExpenseItemResponse)
-async def update_expense_item(
+def update_expense_item(
     item_id: str,
     data: ExpenseItemUpdate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Обновить расход с поддержкой partial update (PATCH semantics)."""
+    """Обновить расход с поддержкой partial update (PATCH semantics).
+
+    groupId/recurringUntil — трёхзначные поля (см. DatabaseManager.update_expense):
+    передаём их в БД только если клиент явно включил ключ в JSON — иначе
+    null (снять группу/дату завершения повторения) неотличим от "поле не
+    передавали".
+    """
+    if data.recurringUntil is not None:
+        _validate_iso_date(data.recurringUntil, "recurringUntil")
+
     try:
         eid = int(item_id)
-
-        # recurringUntil — трёхзначное поле (см. DatabaseManager.update_expense):
-        # передаём его в БД только если клиент явно включил ключ в JSON —
-        # иначе null неотличим от "не трогать это поле" и очистка была бы
-        # неотличима от отсутствия изменений.
-        update_kwargs: dict = dict(
-            eid=eid,
-            name=data.name,
-            amount=data.amount,
-            half=data.half,
-            is_recurring=data.isRecurring,
-            group_id=data.groupId,
-        )
-        if "recurringUntil" in data.model_fields_set:
-            update_kwargs["recurring_until"] = data.recurringUntil
-        db.update_expense(**update_kwargs)
-
-        # Получаем обновленные данные
-        all_expenses = db.get_expenses()
-        updated = None
-        for expense in all_expenses:
-            match expense["id"] == eid:
-                case True:
-                    updated = expense
-                    break
-                case False:
-                    pass
-        
-        match updated:
-            case None:
-                raise HTTPException(status_code=404, detail="Expense item not found")
-            case u:
-                return ExpenseItemResponse(
-                    id=str(eid),
-                    groupId=u.get("group_id"),
-                    name=u["name"],
-                    amount=u["amount"],
-                    date=None,
-                    isInclusive=False,
-                    half=u["half"],
-                    isRecurring=u["is_recurring"],
-                    recurringUntil=u.get("recurring_until"),
-                    month=u["month"],
-                    year=u["year"]
-                )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=f"Item not found: {e}") from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating item: {e}") from e
+
+    update_kwargs: dict = dict(
+        eid=eid,
+        name=data.name,
+        amount=data.amount,
+        half=data.half,
+        is_recurring=data.isRecurring,
+    )
+    if "groupId" in data.model_fields_set:
+        update_kwargs["group_id"] = data.groupId
+    if "recurringUntil" in data.model_fields_set:
+        update_kwargs["recurring_until"] = data.recurringUntil
+
+    try:
+        db.update_expense(**update_kwargs)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=f"Item not found: {e}") from e
+
+    updated = next((e for e in db.get_expenses() if e["id"] == eid), None)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return _expense_to_response(updated)
 
 
 @app.delete("/api/expense-items/{item_id}", status_code=204)
-async def delete_expense_item(
+def delete_expense_item(
     item_id: str,
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить расход."""
     try:
         eid = int(item_id)
-        db.delete_expense(eid)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=404, detail="Item not found") from e
+    db.delete_expense(eid)
     return None
 
 
@@ -596,7 +628,7 @@ async def delete_expense_item(
 # ═══════════════════════════════════════════════════════════════
 
 @app.get("/api/vacations", response_model=list[VacationResponse])
-async def get_vacations(
+def get_vacations(
     month: int | None = Query(None, ge=1, le=12),
     year: int | None = Query(None, ge=2020, le=2100),
     db: DatabaseManager = Depends(get_db),
@@ -616,7 +648,7 @@ async def get_vacations(
 
 
 @app.post("/api/vacations", response_model=VacationResponse, status_code=201)
-async def create_vacation(
+def create_vacation(
     data: VacationCreate,
     db: DatabaseManager = Depends(get_db),
 ):
@@ -638,38 +670,32 @@ async def create_vacation(
     if start and end and start > end:
         raise HTTPException(status_code=400, detail="startDate не может быть позже endDate")
 
-    db.add_vacation(
+    new_id = db.add_vacation(
         total_amount=data.totalAmount,
         payout_date=data.payoutDate,
         start_date=data.startDate,
         end_date=data.endDate,
     )
-    vacations = db.get_vacations()
-    match vacations:
-        case []:
-            last = {}
-        case v_list:
-            last = v_list[-1]
     return VacationResponse(
-        id=str(last.get("id", uuid.uuid4())),
+        id=str(new_id),
         totalAmount=data.totalAmount,
         payoutDate=data.payoutDate,
-        startDate=last.get("start_date", data.startDate),
-        endDate=last.get("end_date", data.endDate),
+        startDate=data.startDate or data.payoutDate,
+        endDate=data.endDate or data.payoutDate,
     )
 
 
 @app.delete("/api/vacations/{vacation_id}", status_code=204)
-async def delete_vacation(
+def delete_vacation(
     vacation_id: str,
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить начисление."""
     try:
         vid = int(vacation_id)
-        db.delete_vacation(vid)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=404, detail="Vacation not found") from e
+    db.delete_vacation(vid)
     return None
 
 
@@ -678,7 +704,7 @@ async def delete_vacation(
 # ═══════════════════════════════════════════════════════════════
 
 @app.get("/api/birthdays", response_model=list[BirthdayResponse])
-async def get_birthdays(db: DatabaseManager = Depends(get_db)):
+def get_birthdays(db: DatabaseManager = Depends(get_db)):
     """Получить все дни рождения."""
     birthdays = db.get_birthdays()
     return [
@@ -708,26 +734,20 @@ def _validate_birth_date_format(value: str) -> None:
 
 
 @app.post("/api/birthdays", response_model=BirthdayResponse, status_code=201)
-async def create_birthday(
+def create_birthday(
     data: BirthdayCreate,
     db: DatabaseManager = Depends(get_db),
 ):
     """Добавить день рождения с валидацией через BirthdayCreate."""
     _validate_birth_date_format(data.birthDate)
 
-    db.add_birthday(
+    new_id = db.add_birthday(
         name=data.name,
         birth_date=data.birthDate,
         gift_amount=data.giftAmount
     )
-    birthdays = db.get_birthdays()
-    match birthdays:
-        case []:
-            last = {}
-        case b_list:
-            last = b_list[-1]
     return BirthdayResponse(
-        id=str(last.get("id", uuid.uuid4())),
+        id=str(new_id),
         name=data.name,
         birthDate=data.birthDate,
         giftAmount=data.giftAmount
@@ -735,7 +755,7 @@ async def create_birthday(
 
 
 @app.put("/api/birthdays/{birthday_id}", response_model=BirthdayResponse)
-async def update_birthday(
+def update_birthday(
     birthday_id: str,
     data: BirthdayUpdate,
     db: DatabaseManager = Depends(get_db),
@@ -764,21 +784,21 @@ async def update_birthday(
 
 
 @app.delete("/api/birthdays/{birthday_id}", status_code=204)
-async def delete_birthday(
+def delete_birthday(
     birthday_id: str,
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить день рождения."""
     try:
         bid = int(birthday_id)
-        db.delete_birthday(bid)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=404, detail="Birthday not found") from e
+    db.delete_birthday(bid)
     return None
 
 
 @app.get("/api/birthdays/upcoming", response_model=list[BirthdayAlertResponse])
-async def get_upcoming_birthdays(
+def get_upcoming_birthdays(
     days: int = Query(30, ge=1, le=365, description="Горизонт напоминания в днях"),
     db: DatabaseManager = Depends(get_db),
     service: BirthdayService = Depends(get_birthday_service),
@@ -797,8 +817,8 @@ async def get_upcoming_birthdays(
     ]
 
 
-@app.post("/api/birthdays/auto-create-expenses", response_model=dict)
-async def auto_create_birthday_expenses(db: DatabaseManager = Depends(get_db)):
+@app.post("/api/birthdays/auto-create-expenses", response_model=AutoCreateResult)
+def auto_create_birthday_expenses(db: DatabaseManager = Depends(get_db)):
     """Создать расходы на подарки для ДР, чей триггер (-14 дней) попал в текущий месяц."""
     service = BirthdayService(get_setting=db.get_setting)
     today = date.today()
@@ -808,7 +828,7 @@ async def auto_create_birthday_expenses(db: DatabaseManager = Depends(get_db)):
         existing,
         add_expense_fn=lambda **kw: db.add_expense(**kw),
     )
-    return {"created": created}
+    return AutoCreateResult(created=created)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -816,7 +836,7 @@ async def auto_create_birthday_expenses(db: DatabaseManager = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════
 
 @app.get("/api/settings", response_model=SalarySettingsResponse)
-async def get_settings(db: DatabaseManager = Depends(get_db)):
+def get_settings(db: DatabaseManager = Depends(get_db)):
     """Получить настройки зарплаты."""
     return SalarySettingsResponse(
         baseSalary=float(db.get_setting("base_salary") or "100000"),
@@ -835,79 +855,38 @@ async def get_settings(db: DatabaseManager = Depends(get_db)):
     )
 
 
+# (pydantic-поле, ключ в settings, преобразование в строку для хранения) —
+# каждое поле SalarySettingsUpdate обновляло настройку почти идентичным
+# match/case блоком, отличавшимся только этими тремя вещами (DRY).
+_SETTINGS_FIELD_MAP: list[tuple[str, str, object]] = [
+    ("baseSalary", "base_salary", str),
+    ("taxRate", "tax_rate", str),
+    ("kef", "kef", str),
+    ("advanceCutoffDay", "advance_cutoff_day", str),
+    ("isAdvanceDateInclusive", "is_advance_date_inclusive", lambda v: str(v).lower()),
+    ("accountShortened", "account_shortened", lambda v: str(v).lower()),
+    ("standardHours", "standard_hours", str),
+    ("payoutDay1", "payout_day1", str),
+    ("payoutDay2", "payout_day2", str),
+    ("moveWeekendToFriday", "move_weekend_to_friday", lambda v: str(v).lower()),
+    ("salaryCalculationMethod", "salary_calculation_method", str),
+    ("firstHalfRatio", "first_half_ratio", str),
+    ("secondHalfRatio", "second_half_ratio", str),
+]
+
+
 @app.put("/api/settings", response_model=SalarySettingsResponse)
-async def update_settings(
+def update_settings(
     updates: SalarySettingsUpdate,
     db: DatabaseManager = Depends(get_db),
 ):
-    """Обновить настройки зарплаты."""
-    match updates:
-        case SalarySettingsUpdate(baseSalary=b) if b is not None:
-            db.set_setting("base_salary", str(b))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(taxRate=t) if t is not None:
-            db.set_setting("tax_rate", str(t))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(kef=k) if k is not None:
-            db.set_setting("kef", str(k))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(advanceCutoffDay=a) if a is not None:
-            db.set_setting("advance_cutoff_day", str(a))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(isAdvanceDateInclusive=i) if i is not None:
-            db.set_setting("is_advance_date_inclusive", str(i).lower())
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(accountShortened=a) if a is not None:
-            db.set_setting("account_shortened", str(a).lower())
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(standardHours=s) if s is not None:
-            db.set_setting("standard_hours", str(s))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(payoutDay1=p) if p is not None:
-            db.set_setting("payout_day1", str(p))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(payoutDay2=p) if p is not None:
-            db.set_setting("payout_day2", str(p))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(moveWeekendToFriday=m) if m is not None:
-            db.set_setting("move_weekend_to_friday", str(m).lower())
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(salaryCalculationMethod=m) if m is not None:
-            db.set_setting("salary_calculation_method", m)
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(firstHalfRatio=r) if r is not None:
-            db.set_setting("first_half_ratio", str(r))
-        case _:
-            pass
-    match updates:
-        case SalarySettingsUpdate(secondHalfRatio=r) if r is not None:
-            db.set_setting("second_half_ratio", str(r))
-        case _:
-            pass
-    
-    return await get_settings(db)
+    """Обновить настройки зарплаты (только переданные поля)."""
+    for field, key, to_str in _SETTINGS_FIELD_MAP:
+        value = getattr(updates, field)
+        if value is not None:
+            db.set_setting(key, to_str(value))
+
+    return get_settings(db)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -915,7 +894,7 @@ async def update_settings(
 # ═══════════════════════════════════════════════════════════════
 
 @app.get("/api/balance", response_model=BalanceResponse)
-async def get_balance(
+def get_balance(
     month: int = Query(..., ge=1, le=12),
     year: int = Query(..., ge=2020, le=2100),
     db: DatabaseManager = Depends(get_db),
@@ -957,35 +936,37 @@ async def get_balance(
 #  DEBTS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
+def _debt_to_response(d: dict) -> DebtResponse:
+    return DebtResponse(
+        id=str(d["id"]),
+        title=d["title"],
+        totalAmount=d["total_amount"],
+        repayments=[
+            RepaymentResponse(
+                id=str(r["id"]),
+                debtId=str(r["debt_id"]),
+                amount=r["amount"],
+                date=r["date"],
+                note=r["note"]
+            )
+            for r in d.get("repayments", [])
+        ],
+        createdAt=d["created_at"],
+        month=d["month"],
+        year=d["year"],
+        repaidAmount=d.get("repaid_amount", 0.0),
+        remainingAmount=d.get("remaining_amount", d["total_amount"]),
+    )
+
+
 @app.get("/api/debts", response_model=list[DebtResponse])
-async def get_debts(db: DatabaseManager = Depends(get_db)):
+def get_debts(db: DatabaseManager = Depends(get_db)):
     """Получить все долги."""
-    debts = db.get_debts()
-    return [
-        DebtResponse(
-            id=str(d["id"]),
-            title=d["title"],
-            totalAmount=d["total_amount"],
-            repayments=[
-                RepaymentResponse(
-                    id=str(r["id"]),
-                    debtId=str(r["debt_id"]),
-                    amount=r["amount"],
-                    date=r["date"],
-                    note=r["note"]
-                )
-                for r in d.get("repayments", [])
-            ],
-            createdAt=d["created_at"],
-            month=d["month"],
-            year=d["year"]
-        )
-        for d in debts
-    ]
+    return [_debt_to_response(d) for d in db.get_debts()]
 
 
 @app.post("/api/debts", response_model=DebtResponse, status_code=201)
-async def create_debt(
+def create_debt(
     data: DebtCreate,
     db: DatabaseManager = Depends(get_db),
 ):
@@ -996,61 +977,42 @@ async def create_debt(
         month=data.month,
         year=data.year
     )
-    # Fetch the created debt
-    debts = db.get_debts()
-    created_debt = next((d for d in debts if str(d["id"]) == str(debt_id)), None)
-    match created_debt:
-        case None:
-            raise HTTPException(status_code=500, detail="Failed to fetch created debt")
-        case debt:
-            return DebtResponse(
-                id=str(debt["id"]),
-                title=debt["title"],
-                totalAmount=debt["total_amount"],
-                repayments=[
-                    RepaymentResponse(
-                        id=str(r["id"]),
-                        debtId=str(r["debt_id"]),
-                        amount=r["amount"],
-                        date=r["date"],
-                        note=r["note"]
-                    )
-                    for r in debt.get("repayments", [])
-                ],
-                createdAt=debt["created_at"],
-                month=debt["month"],
-                year=debt["year"]
-            )
+    created_debt = next((d for d in db.get_debts() if d["id"] == debt_id), None)
+    if created_debt is None:
+        raise HTTPException(status_code=500, detail="Failed to fetch created debt")
+    return _debt_to_response(created_debt)
 
 
 @app.delete("/api/debts/{debt_id}", status_code=204)
-async def delete_debt(
+def delete_debt(
     debt_id: str,
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить долг."""
     try:
         did = int(debt_id)
-        db.delete_debt(did)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=404, detail="Debt not found") from e
+    db.delete_debt(did)
     return None
 
 
 @app.post("/api/debts/{debt_id}/repayments", response_model=RepaymentResponse, status_code=201)
-async def add_debt_repayment(
+def add_debt_repayment(
     debt_id: str,
     data: RepaymentCreate,
     db: DatabaseManager = Depends(get_db),
 ):
     """Добавить погашение долга."""
+    _validate_iso_date(data.date, "date")
+
     try:
         did = int(debt_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=f"Debt not found: {e}") from e
 
     try:
-        db.add_debt_repayment(
+        new_id = db.add_debt_repayment(
             debt_id=did,
             amount=data.amount,
             date=data.date,
@@ -1060,33 +1022,29 @@ async def add_debt_repayment(
         # FOREIGN KEY constraint failed — долга с таким id не существует.
         raise HTTPException(status_code=404, detail=f"Debt not found: {e}") from e
 
-    # Считать провал этой выборки багом, а не "долг не найден" — поэтому
-    # вне try/except выше: настоящая ошибка сервера должна остаться 500.
-    debts = db.get_debts()
-    for debt in debts:
-        if str(debt["id"]) == str(did) and debt["repayments"]:
-            last_repayment = debt["repayments"][-1]
-            return RepaymentResponse(
-                id=str(last_repayment["id"]),
-                debtId=str(last_repayment["debt_id"]),
-                amount=last_repayment["amount"],
-                date=last_repayment["date"],
-                note=last_repayment["note"]
-            )
-    raise HTTPException(status_code=500, detail="Failed to fetch created repayment")
+    # Все поля ответа уже есть в запросе + только что полученном id —
+    # не нужно повторно вычитывать долг из БД и угадывать "последнее"
+    # погашение в отсортированном по дате списке (могло совпасть с чужим).
+    return RepaymentResponse(
+        id=str(new_id),
+        debtId=str(did),
+        amount=data.amount,
+        date=data.date,
+        note=data.note,
+    )
 
 
 @app.delete("/api/debts/repayments/{repayment_id}", status_code=204)
-async def delete_debt_repayment(
+def delete_debt_repayment(
     repayment_id: str,
     db: DatabaseManager = Depends(get_db),
 ):
     """Удалить погашение долга."""
     try:
         rid = int(repayment_id)
-        db.delete_debt_repayment(rid)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=404, detail="Repayment not found") from e
+    db.delete_debt_repayment(rid)
     return None
 
 
@@ -1095,44 +1053,131 @@ async def delete_debt_repayment(
 # ═══════════════════════════════════════════════════════════════
 
 @app.get("/api/analytics/summary", response_model=AnalyticsSummaryResponse)
-async def get_analytics_summary(
+def get_analytics_summary(
     month: int | None = Query(None, ge=1, le=12),
     year: int | None = Query(None, ge=2020, le=2100),
     db: DatabaseManager = Depends(get_db),
 ):
     """Получить сводную аналитику расходов."""
     expenses = db.get_expenses(month=month, year=year)
-    
     total = sum(e["amount"] for e in expenses)
-    
-    # Группировка по категориям
-    by_category: dict[str, dict] = {}
+
+    # Все группы одним запросом заранее — раньше db.get_expense_group(gid)
+    # вызывался внутри цикла по каждому расходу (N+1: отдельное SQL-соединение
+    # на каждый расход с группой).
+    groups_by_id = {g["id"]: g for g in db.get_expense_groups()}
+
+    # Группируем по group_id (не по имени группы) — имена в теории могут
+    # совпасть у разных групп, id — нет; так же сразу протаскиваем groupId/
+    # monthlyLimit в ответ, чтобы фронтенд мог подсветить превышение лимита.
+    by_category: dict[str | None, dict] = {}
     for expense in expenses:
         group_id = expense.get("group_id")
-        match group_id:
-            case None:
-                g_name = "Без группы"
-                g_color = "#9ca3af"
-            case gid:
-                group = db.get_expense_group(gid)
-                g_name = group["name"] if group else "Без группы"
-                g_color = group["color"] if group else "#9ca3af"
-        
-        match g_name in by_category:
-            case False:
-                by_category[g_name] = {"amount": 0, "color": g_color}
-            case _:
-                pass
-        by_category[g_name]["amount"] += expense["amount"]
-    
-    # Сортировка по сумме
-    sorted_categories = sorted(by_category.items(), key=lambda x: x[1]["amount"], reverse=True)
-    
-    return {
-        "total": total,
-        "count": len(expenses),
-        "categories": [{"name": k, **v} for k, v in sorted_categories]
-    }
+        group = groups_by_id.get(group_id) if group_id else None
+
+        if group_id not in by_category:
+            by_category[group_id] = {
+                "name": group["name"] if group else "Без группы",
+                "color": group["color"] if group else "#9ca3af",
+                "amount": 0.0,
+                "groupId": group_id,
+                "monthlyLimit": group.get("monthly_limit") if group else None,
+            }
+        by_category[group_id]["amount"] += expense["amount"]
+
+    sorted_categories = sorted(by_category.values(), key=lambda c: c["amount"], reverse=True)
+
+    return AnalyticsSummaryResponse(
+        total=total,
+        count=len(expenses),
+        categories=[AnalyticsCategory(**cat) for cat in sorted_categories],
+    )
+
+
+@app.get("/api/analytics/trend", response_model=AnalyticsTrendResponse)
+def get_analytics_trend(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2100),
+    months: int = Query(6, ge=2, le=24),
+    db: DatabaseManager = Depends(get_db),
+):
+    """Расходы по месяцам (и по категориям внутри каждого) за `months` месяцев,
+    заканчивая на (month, year) включительно — для графика тренда на
+    /analytics. Переиспользует db.get_expenses(), которая уже сама
+    проецирует повторяющиеся расходы вперёд (см. её докстринг), поэтому
+    здесь достаточно просто перебрать нужные периоды в цикле, без новой
+    SQL-логики.
+    """
+    groups_by_id = {g["id"]: g for g in db.get_expense_groups()}
+
+    # Идём назад от (year, month), потом разворачиваем -> хронологический порядок.
+    periods: list[tuple[int, int]] = []
+    y, m = year, month
+    for _ in range(months):
+        periods.append((y, m))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    periods.reverse()
+
+    result: list[TrendMonth] = []
+    for py, pm in periods:
+        expenses = db.get_expenses(month=pm, year=py)
+        by_group: dict[str | None, float] = {}
+        for e in expenses:
+            gid = e.get("group_id")
+            by_group[gid] = by_group.get(gid, 0.0) + e["amount"]
+
+        categories = [
+            TrendMonthCategory(
+                groupId=gid,
+                name=groups_by_id[gid]["name"] if gid else "Без группы",
+                color=groups_by_id[gid]["color"] if gid else "#9ca3af",
+                amount=amount,
+            )
+            for gid, amount in by_group.items()
+        ]
+        result.append(TrendMonth(month=pm, year=py, total=sum(by_group.values()), categories=categories))
+
+    return AnalyticsTrendResponse(months=result)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  BACKUP (все реальные финансовые данные живут в одном файле —
+#  без этого нет вообще никакой страховки на случай порчи диска)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/backup")
+def download_backup(db: DatabaseManager = Depends(get_db)):
+    """Скачать копию текущей БД. Через SQLite backup API (DatabaseManager.backup_to),
+    а не просто отдать файл budget.db напрямую — так копия остаётся
+    консистентной, даже если БД в этот момент используется (WAL).
+
+    Копия читается в память и временный файл удаляется сразу же, в этом же
+    запросе — не через FileResponse(background=...): на Windows попытка
+    удалить файл из отложенной BackgroundTask иногда натыкается на
+    PermissionError, потому что ОС ещё не до конца освободила хендл после
+    стриминга ответа.
+    """
+    # db.db_path, а не get_app_settings().db_path: в тестах db приходит из
+    # переопределённого get_db (изолированная ":memory:"), а глобальные
+    # настройки всё равно указывали бы на реальный путь к budget.db.
+    if db.db_path == ":memory:":
+        raise HTTPException(status_code=400, detail="Резервная копия недоступна для in-memory БД")
+
+    tmp_path = Path(tempfile.gettempdir()) / f"budget-backup-{uuid.uuid4().hex}.db"
+    db.backup_to(str(tmp_path))
+    try:
+        content = tmp_path.read_bytes()
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    filename = f"budget-backup-{datetime.now():%Y-%m-%d}.db"
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1140,7 +1185,7 @@ async def get_analytics_summary(
 # ═══════════════════════════════════════════════════════════════
 
 @app.get("/api/health")
-async def health_check():
+def health_check():
     """Проверка здоровья API."""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
@@ -1157,7 +1202,7 @@ if (FRONTEND_DIST / "assets").exists():
 
 
 @app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
+def serve_spa(full_path: str):
     """SPA-fallback: любой путь, не совпавший ни с одним /api/... эндпоинтом
     выше и не с /assets, отдаёт index.html — дальше маршрутизацией занимается
     React Router на клиенте (поэтому прямой переход на /settings, /expenses
@@ -1181,4 +1226,7 @@ async def serve_spa(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 127.0.0.1, не 0.0.0.0 — как в main.py. Приложение однопользовательское,
+    # без авторизации; 0.0.0.0 открыл бы полный доступ на чтение/запись
+    # реальных финансовых данных всем в локальной сети.
+    uvicorn.run(app, host="127.0.0.1", port=8000)

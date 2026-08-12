@@ -6,10 +6,16 @@ interface Toast {
   id: number
   message: string
   type: ToastType
+  action?: { label: string; onAction: () => void }
+  durationMs: number
 }
 
 interface ToastContextValue {
   showToast: (message: string, type?: ToastType) => void
+  // Тост с действием (сейчас — "Отменить" для undo-удаления, см.
+  // useUndoableDelete): живёт дольше обычного тоста, и клик по действию
+  // закрывает его немедленно, не дожидаясь таймера.
+  showActionToast: (message: string, actionLabel: string, onAction: () => void) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -29,6 +35,9 @@ const BORDER_CLASSES: Record<ToastType, string> = {
 }
 
 const DISPLAY_MS = 3000
+// Окно отмены для useUndoableDelete — тост должен жить не меньше самого
+// окна отмены, иначе пользователь не успеет нажать "Отменить".
+const ACTION_DISPLAY_MS = 5000
 const EXIT_ANIMATION_MS = 250
 
 /** Провайдер тостов — функциональный аналог showToast() из старого app.js. */
@@ -37,25 +46,40 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [exiting, setExiting] = useState<Set<number>>(new Set())
   const nextId = useRef(0)
 
-  const showToast = useCallback((message: string, type: ToastType = 'info') => {
-    const id = nextId.current++
-    setToasts((prev) => [...prev, { id, message, type }])
-
+  const dismiss = useCallback((id: number) => {
+    setExiting((prev) => new Set(prev).add(id))
     setTimeout(() => {
-      setExiting((prev) => new Set(prev).add(id))
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id))
-        setExiting((prev) => {
-          const next = new Set(prev)
-          next.delete(id)
-          return next
-        })
-      }, EXIT_ANIMATION_MS)
-    }, DISPLAY_MS)
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+      setExiting((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }, EXIT_ANIMATION_MS)
   }, [])
 
+  const push = useCallback(
+    (message: string, type: ToastType, durationMs: number, action?: Toast['action']) => {
+      const id = nextId.current++
+      setToasts((prev) => [...prev, { id, message, type, action, durationMs }])
+      setTimeout(() => dismiss(id), durationMs)
+    },
+    [dismiss],
+  )
+
+  const showToast = useCallback(
+    (message: string, type: ToastType = 'info') => push(message, type, DISPLAY_MS),
+    [push],
+  )
+
+  const showActionToast = useCallback(
+    (message: string, actionLabel: string, onAction: () => void) =>
+      push(message, 'info', ACTION_DISPLAY_MS, { label: actionLabel, onAction }),
+    [push],
+  )
+
   return (
-    <ToastContext.Provider value={{ showToast }}>
+    <ToastContext.Provider value={{ showToast, showActionToast }}>
       {children}
       <div
         className="fixed top-5 right-5 z-50 flex flex-col gap-3"
@@ -65,10 +89,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`flex max-w-[350px] items-center gap-3 rounded-xl border-l-4 bg-white p-4 shadow-2xl ${BORDER_CLASSES[toast.type]} ${exiting.has(toast.id) ? 'animate-toast-out' : 'animate-toast-in'}`}
+            className={`flex max-w-[350px] items-center gap-3 rounded-xl border-l-4 bg-white p-4 shadow-2xl dark:bg-gray-800 ${BORDER_CLASSES[toast.type]} ${exiting.has(toast.id) ? 'animate-toast-out' : 'animate-toast-in'}`}
           >
             <span className="text-lg">{ICONS[toast.type]}</span>
-            <span className="text-sm font-medium text-gray-800">{toast.message}</span>
+            <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{toast.message}</span>
+            {toast.action && (
+              <button
+                type="button"
+                className="flex-none rounded-md px-2 py-1 text-sm font-semibold text-primary hover:bg-primary/10"
+                onClick={() => {
+                  toast.action?.onAction()
+                  dismiss(toast.id)
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

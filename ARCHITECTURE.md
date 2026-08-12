@@ -154,24 +154,20 @@ def process_day(provider: CalendarProvider, d: date):
 
 **Разделение протоколов (каждый минималистичен):**
 ```python
-class SettingProvider(Protocol):
-    def get_setting(self, key: str) -> str: ...
-    def set_setting(self, key: str, value: str) -> None: ...
-
 class CalendarReader(Protocol):
     def get_working_days(self, year: int, month: int) -> tuple[float, float, float]: ...
 
-class ExpenseReader(Protocol):
-    def get_expenses(self, month: int | None, year: int | None) -> list[ExpenseRow]: ...
-
 class VacationReader(Protocol):
     def get_vacations(self, month: int | None, year: int | None) -> list[VacationRow]: ...
-
-class BirthdayReader(Protocol):
-    def get_birthdays(self) -> list[BirthdayRow]: ...
 ```
 
 Клиенты зависят только от нужных им методов, не от "толстых" интерфейсов.
+
+> Ранее здесь также существовали `SettingProvider`, `ExpenseReader` и
+> `BirthdayReader`, но они не использовались ни в одной аннотации типа
+> (`DatabaseManager` передаётся напрямую как конкретный класс везде, кроме
+> мест, использующих `CalendarReader`/`VacationReader`) — удалены, чтобы не
+> поддерживать контракты без потребителей (см. `models.py`).
 
 #### D — Dependency Inversion Principle
 
@@ -196,8 +192,10 @@ def get_db() -> DatabaseManager:
     return DatabaseManager(DB_FILENAME)
 
 @app.get("/api/settings")
-async def get_settings(db: DatabaseManager = Depends(get_db)):
+def get_settings(db: DatabaseManager = Depends(get_db)):
     # Зависимость внедряется автоматически
+    # (endpoint — синхронный: sqlite3-вызовы блокирующие, а не async;
+    # FastAPI сам выполняет обычные def-хендлеры в threadpool)
 ```
 
 ---
@@ -286,6 +284,22 @@ class ExpenseRow(TypedDict):
 
 # Потребители получают автодополнение полей в IDE
 ```
+
+### Конкурентный доступ: без optimistic locking
+
+Приложение сознательно НЕ реализует optimistic locking (row versioning) для
+конкурентного редактирования одной и той же записи. Если два клиента
+(например, две открытые вкладки браузера) правят одну запись одновременно,
+побеждает тот, кто записал последним (last-write-wins) — конфликт версий не
+обнаруживается и не показывается пользователю (см. docstring
+`DatabaseManager` в `database.py`).
+
+Это принятое ограничение, а не недосмотр: приложение — однопользовательский
+локальный десктопный инструмент, для которого такой сценарий на практике не
+возникает. Если это когда-нибудь изменится (например, появится сетевой
+многопользовательский доступ), сюда нужно будет добавить колонку версии
+(`version`/`updated_at`) и проверку версии в `UPDATE ... WHERE id=? AND
+version=?`.
 
 ---
 
@@ -409,7 +423,7 @@ class PDFParser:
 | **SRP** | ✅ | Каждый модуль имеет одну ответственность (см. таблицу выше) |
 | **OCP** | ✅ | Расширение через Protocol без модификации существующего кода |
 | **LSP** | ✅ | WorkalendarAdapter и CorrectedCalendar взаимозаменяемы |
-| **ISP** | ✅ | 5 раздельных Protocol вместо одного "толстого" интерфейса |
+| **ISP** | ✅ | 2 раздельных Protocol (`CalendarReader`, `VacationReader`) вместо одного "толстого" интерфейса |
 | **DIP** | ✅ | SalaryCalculator зависит от Protocol, не от DatabaseManager |
 | **DRY** | ✅ | Дефолты определены только в AppSettings, DI container для DB |
 | **Порт освобождается** | ✅ | Dependency injection закрывает соединения после запроса |

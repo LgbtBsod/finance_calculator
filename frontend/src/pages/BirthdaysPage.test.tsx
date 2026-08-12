@@ -33,7 +33,8 @@ const sampleBirthdays = [
 function mockGet(birthdays: unknown[] = [], alerts: unknown[] = []) {
   mockedApiClient.GET.mockImplementation((path: string) => {
     if (path === '/api/birthdays') return Promise.resolve({ data: birthdays, error: undefined })
-    if (path === '/api/birthdays/upcoming') return Promise.resolve({ data: alerts, error: undefined })
+    if (path === '/api/birthdays/upcoming')
+      return Promise.resolve({ data: alerts, error: undefined })
     return Promise.resolve({ data: undefined, error: undefined })
   })
 }
@@ -79,6 +80,11 @@ describe('BirthdaysPage', () => {
 
     await screen.findByText('🎂 Нет добавленных дней рождения')
 
+    // Форма создания дня рождения теперь в модалке — открывается по кнопке
+    // "+ Добавить день рождения" (см. BirthdaysPage), а не постоянно видима.
+    await user.click(screen.getByRole('button', { name: '+ Добавить день рождения' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
     await user.type(screen.getByLabelText('Имя'), 'Вика')
     await user.selectOptions(screen.getByLabelText('День'), '20')
     await user.selectOptions(screen.getByLabelText('Месяц'), '5')
@@ -86,7 +92,7 @@ describe('BirthdaysPage', () => {
     await user.clear(amountInput)
     await user.type(amountInput, '1500')
 
-    await user.click(screen.getByRole('button', { name: '+ Добавить день рождения' }))
+    await user.click(screen.getByRole('button', { name: '💾 Сохранить день рождения' }))
 
     await waitFor(() => {
       expect(mockedApiClient.POST).toHaveBeenCalledWith('/api/birthdays', {
@@ -95,7 +101,12 @@ describe('BirthdaysPage', () => {
     })
   })
 
-  it('opens the confirm dialog and deletes the birthday on confirmation', async () => {
+  it('opens the confirm dialog, hides the birthday immediately, and offers "Отменить" instead of deleting right away', async () => {
+    // Таймер отмены (useUndoableDelete) и его фактическое срабатывание после
+    // 5с проверяются отдельно, на уровне хука (useUndoableDelete.test.ts) —
+    // там же под fake-таймерами, без сложного стека QueryClient/ConfirmProvider,
+    // с которым react-scheduler под fake-таймерами конфликтует и виснет.
+    // Здесь — только то, что видно пользователю немедленно, синхронно.
     mockGet(sampleBirthdays, [])
     mockedApiClient.DELETE.mockResolvedValue({ data: undefined, error: undefined })
 
@@ -108,14 +119,33 @@ describe('BirthdaysPage', () => {
 
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toBeInTheDocument()
+    expect(mockedApiClient.DELETE).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'Подтвердить' }))
 
-    await waitFor(() => {
-      expect(mockedApiClient.DELETE).toHaveBeenCalledWith('/api/birthdays/{birthday_id}', {
-        params: { path: { birthday_id: '1' } },
-      })
-    })
+    // Мягкое удаление: карточка прячется сразу же, а не после реального DELETE.
+    expect(screen.queryByText('Аня')).not.toBeInTheDocument()
+    expect(mockedApiClient.DELETE).not.toHaveBeenCalled()
+    expect(await screen.findByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+  })
+
+  it('restores the birthday immediately when "Отменить" is clicked', async () => {
+    mockGet(sampleBirthdays, [])
+    mockedApiClient.DELETE.mockResolvedValue({ data: undefined, error: undefined })
+
+    renderPage()
+    const user = userEvent.setup()
+
+    await screen.findByText('Аня')
+    await user.click(screen.getByRole('button', { name: 'Удалить день рождения «Аня»' }))
+    await screen.findByRole('alertdialog')
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }))
+    expect(screen.queryByText('Аня')).not.toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Отменить' }))
+
+    expect(await screen.findByText('Аня')).toBeInTheDocument()
+    expect(mockedApiClient.DELETE).not.toHaveBeenCalled()
   })
 
   it('pre-fills the form and calls the update mutation when editing', async () => {

@@ -55,6 +55,38 @@ class TestExpenseGroups:
         expense = db.get_expenses()[0]
         assert expense["group_id"] is None
 
+    def test_create_with_monthly_limit(self, db: DatabaseManager):
+        db.create_expense_group("g1", "Продукты", "#FF0000", monthly_limit=15000.0)
+        group = db.get_expense_group("g1")
+        assert group["monthly_limit"] == 15000.0
+
+    def test_update_can_set_and_clear_parent_id(self, db: DatabaseManager):
+        db.create_expense_group("parent", "Родитель", "#111111")
+        db.create_expense_group("g1", "Продукты", "#FF0000")
+
+        db.update_expense_group("g1", parent_id="parent")
+        assert db.get_expense_group("g1")["parent_id"] == "parent"
+
+        db.update_expense_group("g1", parent_id=None)  # явная очистка
+        assert db.get_expense_group("g1")["parent_id"] is None
+
+    def test_update_without_parent_id_kwarg_leaves_it_unchanged(self, db: DatabaseManager):
+        db.create_expense_group("parent", "Родитель", "#111111")
+        db.create_expense_group("g1", "Продукты", "#FF0000", parent_id="parent")
+
+        db.update_expense_group("g1", name="Еда")  # parent_id не передан вовсе
+
+        assert db.get_expense_group("g1")["parent_id"] == "parent"
+
+    def test_update_can_set_and_clear_monthly_limit(self, db: DatabaseManager):
+        db.create_expense_group("g1", "Продукты", "#FF0000")
+
+        db.update_expense_group("g1", monthly_limit=20000.0)
+        assert db.get_expense_group("g1")["monthly_limit"] == 20000.0
+
+        db.update_expense_group("g1", monthly_limit=None)
+        assert db.get_expense_group("g1")["monthly_limit"] is None
+
 
 class TestExpenses:
     def test_add_and_filter_by_month_year(self, db: DatabaseManager):
@@ -89,6 +121,26 @@ class TestExpenses:
         eid = db.get_expenses()[0]["id"]
         db.delete_expense(eid)
         assert db.get_expenses() == []
+
+    def test_add_returns_the_new_rowid(self, db: DatabaseManager):
+        eid = db.add_expense("Молоко", 100.0, half=1, month=8, year=2026)
+        assert eid == db.get_expenses()[0]["id"]
+
+    def test_update_can_set_and_clear_group_id(self, db: DatabaseManager):
+        db.create_expense_group("g1", "Продукты", "#FF0000")
+        eid = db.add_expense("Молоко", 100.0, half=1, month=8, year=2026, group_id="g1")
+
+        db.update_expense(eid, group_id=None)  # явная очистка — "без группы"
+
+        assert db.get_expenses()[0]["group_id"] is None
+
+    def test_update_without_group_id_kwarg_leaves_it_unchanged(self, db: DatabaseManager):
+        db.create_expense_group("g1", "Продукты", "#FF0000")
+        eid = db.add_expense("Молоко", 100.0, half=1, month=8, year=2026, group_id="g1")
+
+        db.update_expense(eid, amount=150.0)  # group_id не передан вовсе
+
+        assert db.get_expenses()[0]["group_id"] == "g1"
 
 
 class TestRecurringExpenseProjection:
@@ -202,11 +254,129 @@ class TestVacations:
         db.delete_vacation(vid)
         assert db.get_vacations() == []
 
+    def test_add_returns_the_new_rowid(self, db: DatabaseManager):
+        vid = db.add_vacation(total_amount=1.0, payout_date="2025-07-04")
+        assert vid == db.get_vacations()[0]["id"]
+
     def test_migration_is_idempotent_for_pre_existing_columns(self, db: DatabaseManager):
         # Повторный вызов не должен падать, даже если колонки уже есть
         with db._transaction() as c:
             db._migrate_schema(c)
         assert db.get_vacations() == []
+
+
+class TestCalendarCache:
+    """Кэш производственного календаря (calendar_data) и поправки к нему
+    (calendar_corrections) — используются CalendarService, чтобы не
+    перестраивать календарь на каждый запрос."""
+
+    def test_needs_fill_true_before_any_data_saved(self, db: DatabaseManager):
+        assert db.calendar_needs_fill(2026) is True
+
+    def test_needs_fill_false_after_saving(self, db: DatabaseManager):
+        db.save_calendar_data(2026, [("2026-08-01", 1, 0, 0)])
+        assert db.calendar_needs_fill(2026) is False
+
+    def test_needs_fill_is_scoped_per_year(self, db: DatabaseManager):
+        db.save_calendar_data(2026, [("2026-08-01", 1, 0, 0)])
+        assert db.calendar_needs_fill(2025) is True
+
+    def test_save_then_read_back_matches(self, db: DatabaseManager):
+        rows = [
+            ("2026-08-01", 1, 0, 0),
+            ("2026-08-02", 0, 1, 0),  # выходной/праздник
+            ("2026-08-03", 1, 0, 1),  # сокращённый рабочий день
+        ]
+        db.save_calendar_data(2026, rows)
+
+        month = db.get_calendar_month(2026, 8)
+
+        assert month == [
+            {"date": "2026-08-01", "is_working": 1, "is_holiday": 0, "is_shortened": 0},
+            {"date": "2026-08-02", "is_working": 0, "is_holiday": 1, "is_shortened": 0},
+            {"date": "2026-08-03", "is_working": 1, "is_holiday": 0, "is_shortened": 1},
+        ]
+
+    def test_get_calendar_month_filters_out_other_months(self, db: DatabaseManager):
+        db.save_calendar_data(2026, [
+            ("2026-08-31", 1, 0, 0),
+            ("2026-09-01", 1, 0, 0),
+        ])
+
+        august = db.get_calendar_month(2026, 8)
+
+        assert [r["date"] for r in august] == ["2026-08-31"]
+
+    def test_clear_calendar_cache_resets_needs_fill(self, db: DatabaseManager):
+        db.save_calendar_data(2026, [("2026-08-01", 1, 0, 0)])
+        assert db.calendar_needs_fill(2026) is False
+
+        db.clear_calendar_cache(2026)
+
+        assert db.calendar_needs_fill(2026) is True
+        assert db.get_calendar_month(2026, 8) == []
+
+    def test_clear_calendar_cache_only_affects_given_year(self, db: DatabaseManager):
+        db.save_calendar_data(2025, [("2025-08-01", 1, 0, 0)])
+        db.save_calendar_data(2026, [("2026-08-01", 1, 0, 0)])
+
+        db.clear_calendar_cache(2026)
+
+        assert db.calendar_needs_fill(2026) is True
+        assert db.calendar_needs_fill(2025) is False
+
+    def test_save_calendar_data_overwrites_existing_row_for_same_date(
+        self, db: DatabaseManager
+    ):
+        """INSERT OR REPLACE — повторное сохранение той же даты должно
+        обновить строку, а не завести дубликат/упасть на PRIMARY KEY."""
+        db.save_calendar_data(2026, [("2026-08-01", 1, 0, 0)])
+        db.save_calendar_data(2026, [("2026-08-01", 0, 1, 0)])
+
+        month = db.get_calendar_month(2026, 8)
+
+        assert len(month) == 1
+        assert month[0] == {"date": "2026-08-01", "is_working": 0, "is_holiday": 1, "is_shortened": 0}
+
+    def test_corrections_roundtrip(self, db: DatabaseManager):
+        rows = [
+            ("2026-08-01", "extra_holiday", "manual"),
+            ("2026-08-15", "shortened", "pdf"),
+        ]
+        db.save_corrections(2026, rows)
+
+        corrections = db.get_corrections()
+
+        assert corrections == [
+            {"date": "2026-08-01", "kind": "extra_holiday", "source": "manual"},
+            {"date": "2026-08-15", "kind": "shortened", "source": "pdf"},
+        ]
+
+    def test_get_corrections_empty_before_any_saved(self, db: DatabaseManager):
+        assert db.get_corrections() == []
+
+    def test_save_corrections_replaces_previous_corrections_for_that_year(
+        self, db: DatabaseManager
+    ):
+        """save_corrections удаляет все поправки этого года перед вставкой
+        новых — повторный вызов не должен накапливать старые записи."""
+        db.save_corrections(2026, [("2026-08-01", "extra_holiday", "manual")])
+        db.save_corrections(2026, [("2026-09-01", "extra_working", "manual")])
+
+        corrections = db.get_corrections()
+
+        assert corrections == [{"date": "2026-09-01", "kind": "extra_working", "source": "manual"}]
+
+    def test_save_corrections_does_not_touch_other_years(self, db: DatabaseManager):
+        db.save_corrections(2025, [("2025-08-01", "extra_holiday", "manual")])
+        db.save_corrections(2026, [("2026-08-01", "shortened", "manual")])
+
+        corrections = db.get_corrections()
+
+        assert corrections == [
+            {"date": "2025-08-01", "kind": "extra_holiday", "source": "manual"},
+            {"date": "2026-08-01", "kind": "shortened", "source": "manual"},
+        ]
 
 
 class TestBirthdays:
@@ -215,6 +385,21 @@ class TestBirthdays:
         db.add_birthday("А", "10.01.1990", 2000.0)
         rows = db.get_birthdays()
         assert [r["name"] for r in rows] == ["А", "Б"]
+
+    def test_sorted_by_calendar_order_not_lexicographic_string_order(self, db: DatabaseManager):
+        """Регрессия: ORDER BY birth_date по строке целиком сортировал сначала
+        по дню, а не по месяцу — "01.12" (1 декабря) оказывался раньше
+        "02.01" (2 января), хотя календарно позже."""
+        db.add_birthday("Декабрьский", "01.12.1990", 1000.0)
+        db.add_birthday("Январский", "02.01.1990", 2000.0)
+
+        rows = db.get_birthdays()
+
+        assert [r["name"] for r in rows] == ["Январский", "Декабрьский"]
+
+    def test_add_returns_the_new_rowid(self, db: DatabaseManager):
+        bid = db.add_birthday("А", "10.01.1990", 2000.0)
+        assert bid == db.get_birthdays()[0]["id"]
 
     def test_delete(self, db: DatabaseManager):
         db.add_birthday("А", "10.01.1990", 2000.0)
@@ -240,6 +425,37 @@ class TestDebts:
         repaid = sum(r["amount"] for r in debt["repayments"])
         assert repaid == pytest.approx(3800.0)
         assert debt["total_amount"] - repaid == pytest.approx(25200.0)
+        # get_debts теперь считает это сама — backend как единственный
+        # источник правды вместо повторного пересчёта на фронтенде.
+        assert debt["repaid_amount"] == pytest.approx(3800.0)
+        assert debt["remaining_amount"] == pytest.approx(25200.0)
+
+    def test_remaining_amount_does_not_go_negative_on_overpayment(self, db: DatabaseManager):
+        debt_id = db.create_debt("X", 1000.0, month=1, year=2026)
+        db.add_debt_repayment(debt_id, 1500.0, "2026-01-05")
+
+        assert db.get_debts()[0]["remaining_amount"] == 0.0
+
+    def test_add_repayment_returns_the_new_rowid(self, db: DatabaseManager):
+        debt_id = db.create_debt("X", 1000.0, month=1, year=2026)
+        rid = db.add_debt_repayment(debt_id, 500.0, "2026-01-05")
+        assert rid == db.get_debts()[0]["repayments"][0]["id"]
+
+    def test_repayments_grouped_correctly_across_multiple_debts(self, db: DatabaseManager):
+        """Регрессия для фикса N+1: один общий запрос погашений группируется
+        по debt_id в Python — каждому долгу должны попасть только его платежи."""
+        debt_a = db.create_debt("Долг A", 1000.0, month=1, year=2026)
+        debt_b = db.create_debt("Долг B", 2000.0, month=1, year=2026)
+        db.add_debt_repayment(debt_a, 100.0, "2026-01-01")
+        db.add_debt_repayment(debt_b, 200.0, "2026-01-02")
+        db.add_debt_repayment(debt_b, 300.0, "2026-01-03")
+
+        debts = {d["id"]: d for d in db.get_debts()}
+
+        assert len(debts[debt_a]["repayments"]) == 1
+        assert len(debts[debt_b]["repayments"]) == 2
+        assert debts[debt_a]["repaid_amount"] == pytest.approx(100.0)
+        assert debts[debt_b]["repaid_amount"] == pytest.approx(500.0)
 
     def test_delete_repayment(self, db: DatabaseManager):
         debt_id = db.create_debt("X", 1000.0, month=1, year=2026)
@@ -254,3 +470,22 @@ class TestDebts:
         debt_id = db.create_debt("X", 1000.0, month=1, year=2026)
         db.delete_debt(debt_id)
         assert db.get_debts() == []
+
+
+class TestBackup:
+    def test_backup_to_produces_a_connectable_copy_with_matching_data(
+        self, db: DatabaseManager, tmp_path
+    ):
+        db.add_expense("Молоко", 100.0, half=1, month=8, year=2026)
+        backup_path = tmp_path / "backup.db"
+
+        db.backup_to(str(backup_path))
+
+        assert backup_path.exists()
+        restored = DatabaseManager(str(backup_path))
+        try:
+            expenses = restored.get_expenses()
+            assert len(expenses) == 1
+            assert expenses[0]["name"] == "Молоко"
+        finally:
+            restored.close()

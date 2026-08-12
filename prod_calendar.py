@@ -478,7 +478,11 @@ class CalendarService:
         """(total, half_1, half_2) с учётом настройки сокращённых дней."""
         provider = self._get_provider(year)
         cutoff = int(self._get_setting("advance_cutoff_day") or 15)
-        account_short = self._get_setting("account_shortened") == "1"
+        # Все булевы настройки хранятся как строки "true"/"false" (см.
+        # database.py._seed_defaults, api.py get_settings/update_settings) —
+        # "1" здесь никогда не совпадал, и переключатель "Учитывать
+        # сокращённые дни отдельно" не имел эффекта ни при каком положении.
+        account_short = self._get_setting("account_shortened") == "true"
         std_hours = float(self._get_setting("standard_hours") or 40)
         factor = (
             max(0.0, (std_hours / 5 - 1) / (std_hours / 5))

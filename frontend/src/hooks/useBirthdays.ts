@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import type { components } from '../api/client'
+import { extractErrorMessage } from '../lib/apiError'
 import { queryKeys } from '../lib/queryClient'
 
 export type Birthday = components['schemas']['BirthdayResponse']
@@ -12,7 +13,7 @@ export function useBirthdays() {
     queryKey: queryKeys.birthdays,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/api/birthdays')
-      if (error) throw new Error('Failed to load birthdays')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось загрузить дни рождения'))
       return data
     },
   })
@@ -25,7 +26,7 @@ export function useUpcomingBirthdays(days: number) {
       const { data, error } = await apiClient.GET('/api/birthdays/upcoming', {
         params: { query: { days } },
       })
-      if (error) throw new Error('Failed to load upcoming birthdays')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось загрузить напоминания'))
       return data
     },
   })
@@ -36,7 +37,7 @@ export function useCreateBirthday() {
   return useMutation({
     mutationFn: async (payload: BirthdayCreate) => {
       const { data, error } = await apiClient.POST('/api/birthdays', { body: payload })
-      if (error) throw new Error('Failed to create birthday')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось добавить день рождения'))
       return data
     },
     onSuccess: () => {
@@ -54,7 +55,7 @@ export function useUpdateBirthday() {
         params: { path: { birthday_id: id } },
         body,
       })
-      if (error) throw new Error('Failed to update birthday')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось обновить день рождения'))
       return data
     },
     onSuccess: () => {
@@ -71,7 +72,7 @@ export function useDeleteBirthday() {
       const { error } = await apiClient.DELETE('/api/birthdays/{birthday_id}', {
         params: { path: { birthday_id: birthdayId } },
       })
-      if (error) throw new Error('Failed to delete birthday')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось удалить день рождения'))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.birthdays })
@@ -85,8 +86,10 @@ export function useAutoCreateBirthdayExpenses() {
   return useMutation({
     mutationFn: async () => {
       const { data, error } = await apiClient.POST('/api/birthdays/auto-create-expenses', {})
-      if (error) throw new Error('Failed to auto-create birthday expenses')
-      return data as { created: number }
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось создать расходы на подарки'))
+      // Backend теперь отдаёт response_model=AutoCreateResult (было dict) —
+      // data уже корректно типизирован сгенерированной схемой, каст не нужен.
+      return data
     },
     onSuccess: () => {
       // Может создать расходы за текущий месяц — инвалидируем частичные ключи.

@@ -19,6 +19,7 @@ import sys
 import threading
 import webbrowser
 from pathlib import Path
+from typing import IO
 
 HOST = "127.0.0.1"
 # Порт 8000 занят чуть ли не чаще любого другого (Django, другие dev-серверы
@@ -37,6 +38,39 @@ def _app_base_dir() -> Path:
 def _configure_db_path() -> None:
     """БД — рядом с exe/скриптом, если пользователь не указал FINANCE_DB_PATH явно."""
     os.environ.setdefault("FINANCE_DB_PATH", str(_app_base_dir() / "budget.db"))
+
+
+def _acquire_single_instance_lock(lock_path: Path) -> IO[str] | None:
+    """Захватывает эксклюзивную ОС-блокировку lock-файла, чтобы второй запущенный
+    экземпляр не писал в ту же budget.db одновременно с первым.
+
+    Блокировка именно на уровне ОС, а не проверка PID из lock-файла — та была бы
+    ненадёжной: PID освободившегося процесса может быть переиспользован системой
+    для совсем другой программы. ОС же снимает блокировку сама при завершении
+    процесса-владельца, в том числе аварийном, так что отдельная логика
+    "жив ли процесс" не нужна.
+
+    Возвращает открытый файловый объект при успехе — его нужно сохранить в
+    переменной на весь жизненный цикл процесса (сборка мусора закрыла бы файл
+    и тем самым сняла блокировку раньше времени). Возвращает None, если файл
+    уже заблокирован другим процессом.
+    """
+    # `with open(...)` тут не годится: файл обязан остаться открытым ПОСЛЕ
+    # выхода из этой функции (иначе ОС снимет блокировку немедленно).
+    lock_file = open(lock_path, "a")  # noqa: SIM115
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        return None
+    return lock_file
 
 
 def _find_free_port(preferred: int) -> int:
@@ -68,6 +102,14 @@ def _open_browser_when_ready(port: int) -> None:
 
 def main() -> None:
     _configure_db_path()
+
+    # Держим файловый объект живым до конца main() — до сюда доходит только
+    # после блокирующего uvicorn.run(), т.е. на весь жизненный цикл процесса.
+    lock_file = _acquire_single_instance_lock(_app_base_dir() / "app.lock")
+    if lock_file is None:
+        print("Приложение уже запущено — второй экземпляр не может открыть ту же базу данных.")
+        sys.exit(1)
+
     port = _find_free_port(PREFERRED_PORT)
 
     # Импорт после настройки FINANCE_DB_PATH — AppSettings читает env при создании.

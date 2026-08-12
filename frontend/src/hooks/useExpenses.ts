@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import type { components } from '../api/client'
+import { extractErrorMessage, toApiError } from '../lib/apiError'
 import { queryKeys } from '../lib/queryClient'
 
 export type ExpenseGroup = components['schemas']['ExpenseGroupResponse']
@@ -15,7 +16,7 @@ export function useExpenseGroups() {
     queryKey: queryKeys.expenseGroups,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/api/expense-groups')
-      if (error) throw new Error('Failed to load expense groups')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось загрузить группы расходов'))
       return data
     },
   })
@@ -26,7 +27,7 @@ export function useCreateExpenseGroup() {
   return useMutation({
     mutationFn: async (body: ExpenseGroupCreate) => {
       const { data, error } = await apiClient.POST('/api/expense-groups', { body })
-      if (error) throw new Error('Failed to create expense group')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось добавить группу расходов'))
       return data
     },
     onSuccess: () => {
@@ -43,7 +44,7 @@ export function useUpdateExpenseGroup() {
         params: { path: { group_id: id } },
         body,
       })
-      if (error) throw new Error('Failed to update expense group')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось обновить группу расходов'))
       return data
     },
     onSuccess: () => {
@@ -59,7 +60,7 @@ export function useDeleteExpenseGroup() {
       const { error } = await apiClient.DELETE('/api/expense-groups/{group_id}', {
         params: { path: { group_id: groupId } },
       })
-      if (error) throw new Error('Failed to delete expense group')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось удалить группу расходов'))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.expenseGroups })
@@ -76,7 +77,7 @@ export function useExpenseItems(month: number | null, year: number | null) {
       const { data, error } = await apiClient.GET('/api/expense-items', {
         params: { query },
       })
-      if (error) throw new Error('Failed to load expense items')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось загрузить расходы'))
       return data
     },
   })
@@ -87,7 +88,7 @@ export function useCreateExpenseItem() {
   return useMutation({
     mutationFn: async (body: ExpenseItemCreate) => {
       const { data, error } = await apiClient.POST('/api/expense-items', { body })
-      if (error) throw new Error('Failed to create expense item')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось добавить расход'))
       return data
     },
     onSuccess: () => {
@@ -102,11 +103,14 @@ export function useUpdateExpenseItem() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, body }: { id: string; body: ExpenseItemUpdate }) => {
-      const { data, error } = await apiClient.PUT('/api/expense-items/{item_id}', {
+      const { data, error, response } = await apiClient.PUT('/api/expense-items/{item_id}', {
         params: { path: { item_id: id } },
         body,
       })
-      if (error) throw new Error('Failed to update expense item')
+      // response.status сохраняется в ApiError — если расход удалили в
+      // другой вкладке, пока эта форма его редактировала, страница может
+      // явно закрыть форму и объяснить причину, а не просто повторить тост.
+      if (error) throw toApiError(error, 'Не удалось обновить расход', response.status)
       return data
     },
     onSuccess: () => {
@@ -123,7 +127,7 @@ export function useDeleteExpenseItem() {
       const { error } = await apiClient.DELETE('/api/expense-items/{item_id}', {
         params: { path: { item_id: itemId } },
       })
-      if (error) throw new Error('Failed to delete expense item')
+      if (error) throw new Error(extractErrorMessage(error, 'Не удалось удалить расход'))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expense-items'] })

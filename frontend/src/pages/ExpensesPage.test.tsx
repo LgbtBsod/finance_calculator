@@ -86,6 +86,11 @@ describe('ExpensesPage', () => {
 
     await screen.findByText('Продукты', { selector: 'p' })
 
+    // Форма создания расхода теперь в модалке — открывается по кнопке
+    // "+ Добавить расход" (см. ExpenseItemsPanel), а не постоянно видима.
+    await user.click(screen.getByRole('button', { name: '+ Добавить расход' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
     const nameInput = container.querySelector<HTMLInputElement>('#item-name')!
     const amountInput = container.querySelector<HTMLInputElement>('#item-amount')!
     const groupSelect = container.querySelector<HTMLSelectElement>('#item-group')!
@@ -95,7 +100,7 @@ describe('ExpensesPage', () => {
     await user.type(amountInput, '250')
     await user.selectOptions(groupSelect, 'g1')
 
-    await user.click(screen.getByRole('button', { name: '+ Добавить расход' }))
+    await user.click(screen.getByRole('button', { name: '💾 Сохранить расход' }))
 
     const now = new Date()
 
@@ -115,24 +120,43 @@ describe('ExpensesPage', () => {
     })
   })
 
-  it('opens the confirm dialog and deletes the expense item on confirmation', async () => {
-    mockedDelete.mockResolvedValue({ data: undefined, error: undefined })
+  it('opens the confirm dialog, hides the expense immediately, and offers "Отменить" instead of deleting right away', async () => {
+    // Таймер отмены (useUndoableDelete) и его фактическое срабатывание после
+    // 5с проверяются отдельно, на уровне хука (useUndoableDelete.test.ts) —
+    // там же под fake-таймерами, без сложного стека QueryClient/ConfirmProvider,
+    // с которым react-scheduler под fake-таймерами конфликтует и виснет.
+    // Здесь — только то, что видно пользователю немедленно, синхронно.
     const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('Молоко')
 
     await user.click(screen.getByRole('button', { name: 'Удалить расход «Молоко»' }))
-
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    expect(mockedDelete).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'Подтвердить' }))
 
-    await waitFor(() => {
-      expect(mockedDelete).toHaveBeenCalledWith('/api/expense-items/{item_id}', {
-        params: { path: { item_id: 'i1' } },
-      })
-    })
+    // Мягкое удаление: карточка прячется сразу же, а не после реального DELETE.
+    expect(screen.queryByText('Молоко')).not.toBeInTheDocument()
+    expect(mockedDelete).not.toHaveBeenCalled()
+    expect(await screen.findByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+  })
+
+  it('restores the expense immediately when "Отменить" is clicked', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Молоко')
+    await user.click(screen.getByRole('button', { name: 'Удалить расход «Молоко»' }))
+    await screen.findByRole('alertdialog')
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }))
+    expect(screen.queryByText('Молоко')).not.toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Отменить' }))
+
+    expect(await screen.findByText('Молоко')).toBeInTheDocument()
+    expect(mockedDelete).not.toHaveBeenCalled()
   })
 
   it('edits an existing group: populates the form, submits PUT, then resets to create mode', async () => {
@@ -145,9 +169,12 @@ describe('ExpensesPage', () => {
 
     await screen.findByText('Продукты', { selector: 'p' })
 
+    // Форма редактирования группы теперь в модалке — открывается по "✏️"
+    // на карточке группы (см. ExpenseGroupsPanel/startEditGroup).
     await user.click(screen.getByRole('button', { name: 'Редактировать группу «Продукты»' }))
 
-    expect(await screen.findByText('✏️ Редактирование группы')).toBeInTheDocument()
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('✏️ Редактирование группы')).toBeInTheDocument()
     const nameInput = container.querySelector<HTMLInputElement>('#group-name')!
     expect(nameInput.value).toBe('Продукты')
 
@@ -158,12 +185,13 @@ describe('ExpensesPage', () => {
     await waitFor(() => {
       expect(mockedPut).toHaveBeenCalledWith('/api/expense-groups/{group_id}', {
         params: { path: { group_id: 'g1' } },
-        body: { name: 'Еда', color: '#ff0000' },
+        body: { name: 'Еда', color: '#ff0000', monthlyLimit: null },
       })
     })
 
-    // Возврат в режим создания после успешного сохранения
-    expect(screen.getByText('📁 Новая группа расходов')).toBeInTheDocument()
+    // Успешное сохранение закрывает модалку целиком (см. cancelEditGroup),
+    // а не просто переключает её обратно в режим создания.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('edits an existing expense item: populates the form and submits PUT with no month/year', async () => {
@@ -195,7 +223,9 @@ describe('ExpensesPage', () => {
       })
     })
 
-    expect(screen.getByText('💰 Новый расход')).toBeInTheDocument()
+    // Успешное сохранение закрывает модалку целиком (см. cancelEditItem),
+    // а не просто переключает её обратно в режим создания.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('shows the recurring-until date field only while "Повторяющийся" is checked, and includes it in the payload', async () => {
@@ -204,6 +234,8 @@ describe('ExpensesPage', () => {
     const { container } = renderPage()
 
     await screen.findByText('Молоко')
+    await user.click(screen.getByRole('button', { name: '+ Добавить расход' }))
+    await screen.findByRole('dialog')
 
     expect(screen.queryByLabelText(/Завершить повторение/)).not.toBeInTheDocument()
 
@@ -217,7 +249,7 @@ describe('ExpensesPage', () => {
     await user.type(amountInput, '5000')
     await user.type(untilInput, '2026-12-31')
 
-    await user.click(screen.getByRole('button', { name: '+ Добавить расход' }))
+    await user.click(screen.getByRole('button', { name: '💾 Сохранить расход' }))
 
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith(
@@ -229,7 +261,7 @@ describe('ExpensesPage', () => {
     })
   })
 
-  it('cancels editing and restores the create-mode form', async () => {
+  it('cancels editing and closes the modal without submitting', async () => {
     const user = userEvent.setup()
     renderPage()
 
@@ -239,8 +271,15 @@ describe('ExpensesPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Отмена' }))
 
-    expect(screen.getByText('💰 Новый расход')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(mockedPut).not.toHaveBeenCalled()
+
+    // Открыть заново после отмены -> пустая форма создания, а не оставшиеся
+    // значения отменённого редактирования.
+    await user.click(screen.getByRole('button', { name: '+ Добавить расход' }))
+    expect(await screen.findByText('💰 Новый расход')).toBeInTheDocument()
+    const nameInput = document.querySelector<HTMLInputElement>('#item-name')!
+    expect(nameInput.value).toBe('')
   })
 })
 
@@ -274,10 +313,18 @@ describe('ExpensesPage filters', () => {
     return renderPage()
   }
 
+  // Поиск/Группа/Половина месяца/Сортировка/Только повторяющиеся свёрнуты по
+  // умолчанию за "Доп. фильтры" (см. ExpenseItemsPanel) — каждый тест из этого
+  // блока должен сначала развернуть их, иначе полей просто нет в DOM.
+  async function expandExtraFilters(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: /Доп\. фильтры/ }))
+  }
+
   it('filters by name search (case-insensitive)', async () => {
     const user = userEvent.setup()
     renderFilterPage()
     await screen.findByText('Молоко')
+    await expandExtraFilters(user)
 
     await user.type(screen.getByLabelText('Поиск'), 'кредит');
 
@@ -291,6 +338,7 @@ describe('ExpensesPage filters', () => {
     const user = userEvent.setup()
     renderFilterPage()
     await screen.findByText('Молоко')
+    await expandExtraFilters(user)
 
     await user.selectOptions(screen.getByLabelText('Группа', { selector: '#filter-group' }), '__none__')
 
@@ -303,6 +351,7 @@ describe('ExpensesPage filters', () => {
     const user = userEvent.setup()
     renderFilterPage()
     await screen.findByText('Молоко')
+    await expandExtraFilters(user)
 
     await user.selectOptions(screen.getByLabelText('Половина месяца', { selector: '#filter-half' }), '2')
 
@@ -315,6 +364,7 @@ describe('ExpensesPage filters', () => {
     const user = userEvent.setup()
     renderFilterPage()
     await screen.findByText('Молоко')
+    await expandExtraFilters(user)
 
     await user.click(screen.getByLabelText('Только повторяющиеся'))
 
@@ -327,6 +377,7 @@ describe('ExpensesPage filters', () => {
     const user = userEvent.setup()
     renderFilterPage()
     await screen.findByText('Молоко')
+    await expandExtraFilters(user)
 
     await user.type(screen.getByLabelText('Поиск'), 'не существует такого расхода')
 
@@ -343,6 +394,7 @@ describe('ExpensesPage filters', () => {
     const user = userEvent.setup()
     renderFilterPage()
     await screen.findByText('Молоко')
+    await expandExtraFilters(user)
 
     await user.selectOptions(screen.getByLabelText('Группа', { selector: '#filter-group' }), 'g1')
     await user.selectOptions(screen.getByLabelText('Половина месяца', { selector: '#filter-half' }), '2')
