@@ -23,7 +23,7 @@ if errorlevel 1 (
 echo [OK] Python detected
 python --version
 echo.
-
+python -m pip install --upgrade pip --quiet
 REM ============================================
 REM Install Python dependencies
 REM ============================================
