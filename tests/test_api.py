@@ -70,11 +70,16 @@ class TestSettings:
     ):
         """Регрессия: account_shortened сравнивался с "1" вместо "true" —
         переключатель не имел эффекта ни при каком положении."""
-        client.put("/api/settings", json={
-            "baseSalary": 100000, "taxRate": 13, "kef": 1.0,
-            "salaryCalculationMethod": "working_days",
-            "accountShortened": False,
-        })
+        client.put(
+            "/api/settings",
+            json={
+                "baseSalary": 100000,
+                "taxRate": 13,
+                "kef": 1.0,
+                "salaryCalculationMethod": "working_days",
+                "accountShortened": False,
+            },
+        )
         off = client.get("/api/balance", params={"month": 7, "year": 2025}).json()
 
         client.put("/api/settings", json={"accountShortened": True})
@@ -85,10 +90,15 @@ class TestSettings:
 
 class TestBalanceEndpoint:
     def test_default_proportional_split(self, client: TestClient):
-        client.put("/api/settings", json={
-            "baseSalary": 100000, "taxRate": 13, "kef": 1.0,
-            "salaryCalculationMethod": "proportional",
-        })
+        client.put(
+            "/api/settings",
+            json={
+                "baseSalary": 100000,
+                "taxRate": 13,
+                "kef": 1.0,
+                "salaryCalculationMethod": "proportional",
+            },
+        )
 
         response = client.get("/api/balance", params={"month": 8, "year": 2026})
 
@@ -99,11 +109,17 @@ class TestBalanceEndpoint:
         assert data["toPayHalf2"] == pytest.approx(52200.0)
 
     def test_matches_reference_spreadsheet_via_working_days(self, client: TestClient):
-        client.put("/api/settings", json={
-            "baseSalary": 121003, "taxRate": 13, "kef": 1.0,
-            "salaryCalculationMethod": "working_days",
-            "advanceCutoffDay": 15, "isAdvanceDateInclusive": True,
-        })
+        client.put(
+            "/api/settings",
+            json={
+                "baseSalary": 121003,
+                "taxRate": 13,
+                "kef": 1.0,
+                "salaryCalculationMethod": "working_days",
+                "advanceCutoffDay": 15,
+                "isAdvanceDateInclusive": True,
+            },
+        )
 
         response = client.get("/api/balance", params={"month": 7, "year": 2025})
 
@@ -112,13 +128,25 @@ class TestBalanceEndpoint:
         assert data["toPayHalf2"] == pytest.approx(54924.84, abs=0.01)
 
     def test_subtracts_expenses(self, client: TestClient):
-        client.put("/api/settings", json={
-            "baseSalary": 100000, "taxRate": 13, "kef": 1.0,
-            "salaryCalculationMethod": "proportional",
-        })
-        client.post("/api/expense-items", json={
-            "name": "Продукты", "amount": 5000, "half": 1, "month": 8, "year": 2026,
-        })
+        client.put(
+            "/api/settings",
+            json={
+                "baseSalary": 100000,
+                "taxRate": 13,
+                "kef": 1.0,
+                "salaryCalculationMethod": "proportional",
+            },
+        )
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Продукты",
+                "amount": 5000,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        )
 
         response = client.get("/api/balance", params={"month": 8, "year": 2026})
 
@@ -150,11 +178,20 @@ class TestExpenseGroups:
     def test_delete_group_with_expenses_does_not_500(self, client: TestClient):
         """Регрессия: удаление группы, у которой есть расходы, падало с
         необработанным FOREIGN KEY constraint failed (HTTP 500)."""
-        group = client.post("/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}).json()
-        client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026,
-            "groupId": group["id"],
-        })
+        group = client.post(
+            "/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}
+        ).json()
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "groupId": group["id"],
+            },
+        )
 
         response = client.delete(f"/api/expense-groups/{group['id']}")
 
@@ -167,9 +204,14 @@ class TestExpenseGroups:
         assert response.status_code == 422
 
     def test_create_and_update_monthly_limit(self, client: TestClient):
-        group = client.post("/api/expense-groups", json={
-            "name": "Продукты", "color": "#FF0000", "monthlyLimit": 15000,
-        }).json()
+        group = client.post(
+            "/api/expense-groups",
+            json={
+                "name": "Продукты",
+                "color": "#FF0000",
+                "monthlyLimit": 15000,
+            },
+        ).json()
         assert group["monthlyLimit"] == 15000
 
         updated = client.put(f"/api/expense-groups/{group['id']}", json={"monthlyLimit": 20000})
@@ -178,10 +220,17 @@ class TestExpenseGroups:
     def test_update_can_explicitly_clear_parent_id(self, client: TestClient):
         """Регрессия: null для parentId был неотличим от 'поле не передано' —
         подкатегорию нельзя было разгруппировать."""
-        parent = client.post("/api/expense-groups", json={"name": "Родитель", "color": "#111111"}).json()
-        child = client.post("/api/expense-groups", json={
-            "name": "Дочерняя", "color": "#222222", "parentId": parent["id"],
-        }).json()
+        parent = client.post(
+            "/api/expense-groups", json={"name": "Родитель", "color": "#111111"}
+        ).json()
+        child = client.post(
+            "/api/expense-groups",
+            json={
+                "name": "Дочерняя",
+                "color": "#222222",
+                "parentId": parent["id"],
+            },
+        ).json()
         assert child["parentId"] == parent["id"]
 
         updated = client.put(f"/api/expense-groups/{child['id']}", json={"parentId": None})
@@ -189,10 +238,17 @@ class TestExpenseGroups:
         assert updated.json()["parentId"] is None
 
     def test_update_omitting_parent_id_leaves_it_unchanged(self, client: TestClient):
-        parent = client.post("/api/expense-groups", json={"name": "Родитель", "color": "#111111"}).json()
-        child = client.post("/api/expense-groups", json={
-            "name": "Дочерняя", "color": "#222222", "parentId": parent["id"],
-        }).json()
+        parent = client.post(
+            "/api/expense-groups", json={"name": "Родитель", "color": "#111111"}
+        ).json()
+        child = client.post(
+            "/api/expense-groups",
+            json={
+                "name": "Дочерняя",
+                "color": "#222222",
+                "parentId": parent["id"],
+            },
+        ).json()
 
         updated = client.put(f"/api/expense-groups/{child['id']}", json={"name": "Переименована"})
 
@@ -202,14 +258,26 @@ class TestExpenseGroups:
         """Регрессия: `parentId` ошибочно переиспользовался как ID новой
         группы — вторая подкатегория с тем же родителем падала с
         UNIQUE constraint failed (id совпадал с id родителя)."""
-        parent = client.post("/api/expense-groups", json={"name": "Родитель", "color": "#111111"}).json()
+        parent = client.post(
+            "/api/expense-groups", json={"name": "Родитель", "color": "#111111"}
+        ).json()
 
-        child1 = client.post("/api/expense-groups", json={
-            "name": "Дочерняя 1", "color": "#222222", "parentId": parent["id"],
-        })
-        child2 = client.post("/api/expense-groups", json={
-            "name": "Дочерняя 2", "color": "#333333", "parentId": parent["id"],
-        })
+        child1 = client.post(
+            "/api/expense-groups",
+            json={
+                "name": "Дочерняя 1",
+                "color": "#222222",
+                "parentId": parent["id"],
+            },
+        )
+        child2 = client.post(
+            "/api/expense-groups",
+            json={
+                "name": "Дочерняя 2",
+                "color": "#333333",
+                "parentId": parent["id"],
+            },
+        )
 
         assert child1.status_code == 201
         assert child2.status_code == 201
@@ -219,35 +287,70 @@ class TestExpenseGroups:
 
 class TestExpenseItems:
     def test_create_and_filter_by_period(self, client: TestClient):
-        client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026,
-        })
-        client.post("/api/expense-items", json={
-            "name": "Бензин", "amount": 2000, "half": 2, "month": 9, "year": 2026,
-        })
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        )
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Бензин",
+                "amount": 2000,
+                "half": 2,
+                "month": 9,
+                "year": 2026,
+            },
+        )
 
         august = client.get("/api/expense-items", params={"month": 8, "year": 2026}).json()
         assert len(august) == 1
         assert august[0]["name"] == "Молоко"
 
     def test_negative_amount_rejected(self, client: TestClient):
-        response = client.post("/api/expense-items", json={
-            "name": "X", "amount": -5, "half": 1, "month": 8, "year": 2026,
-        })
+        response = client.post(
+            "/api/expense-items",
+            json={
+                "name": "X",
+                "amount": -5,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        )
         assert response.status_code == 422
 
     def test_delete(self, client: TestClient):
-        created = client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026,
-        }).json()
+        created = client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        ).json()
         response = client.delete(f"/api/expense-items/{created['id']}")
         assert response.status_code == 204
 
     def test_recurring_expense_is_projected_into_a_later_month(self, client: TestClient):
-        client.post("/api/expense-items", json={
-            "name": "Кредит", "amount": 5000, "half": 1, "month": 8, "year": 2026,
-            "isRecurring": True,
-        })
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Кредит",
+                "amount": 5000,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "isRecurring": True,
+            },
+        )
 
         september = client.get("/api/expense-items", params={"month": 9, "year": 2026}).json()
 
@@ -257,19 +360,35 @@ class TestExpenseItems:
         assert september[0]["year"] == 2026
 
     def test_recurring_until_stops_the_projection(self, client: TestClient):
-        client.post("/api/expense-items", json={
-            "name": "Кредит", "amount": 5000, "half": 1, "month": 1, "year": 2026,
-            "isRecurring": True, "recurringUntil": "2026-03-15",
-        })
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Кредит",
+                "amount": 5000,
+                "half": 1,
+                "month": 1,
+                "year": 2026,
+                "isRecurring": True,
+                "recurringUntil": "2026-03-15",
+            },
+        )
 
         assert len(client.get("/api/expense-items", params={"month": 3, "year": 2026}).json()) == 1
         assert client.get("/api/expense-items", params={"month": 4, "year": 2026}).json() == []
 
     def test_update_can_explicitly_clear_recurring_until(self, client: TestClient):
-        created = client.post("/api/expense-items", json={
-            "name": "Кредит", "amount": 5000, "half": 1, "month": 1, "year": 2026,
-            "isRecurring": True, "recurringUntil": "2026-02-28",
-        }).json()
+        created = client.post(
+            "/api/expense-items",
+            json={
+                "name": "Кредит",
+                "amount": 5000,
+                "half": 1,
+                "month": 1,
+                "year": 2026,
+                "isRecurring": True,
+                "recurringUntil": "2026-02-28",
+            },
+        ).json()
         assert client.get("/api/expense-items", params={"month": 3, "year": 2026}).json() == []
 
         updated = client.put(f"/api/expense-items/{created['id']}", json={"recurringUntil": None})
@@ -279,10 +398,18 @@ class TestExpenseItems:
         assert len(client.get("/api/expense-items", params={"month": 3, "year": 2026}).json()) == 1
 
     def test_update_omitting_recurring_until_leaves_it_unchanged(self, client: TestClient):
-        created = client.post("/api/expense-items", json={
-            "name": "Кредит", "amount": 5000, "half": 1, "month": 1, "year": 2026,
-            "isRecurring": True, "recurringUntil": "2026-06-30",
-        }).json()
+        created = client.post(
+            "/api/expense-items",
+            json={
+                "name": "Кредит",
+                "amount": 5000,
+                "half": 1,
+                "month": 1,
+                "year": 2026,
+                "isRecurring": True,
+                "recurringUntil": "2026-06-30",
+            },
+        ).json()
 
         updated = client.put(f"/api/expense-items/{created['id']}", json={"amount": 5500})
 
@@ -292,11 +419,20 @@ class TestExpenseItems:
     def test_update_can_explicitly_clear_group_id(self, client: TestClient):
         """Регрессия: null для groupId был неотличим от 'поле не передано' —
         расход нельзя было вернуть 'без группы'."""
-        group = client.post("/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}).json()
-        created = client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026,
-            "groupId": group["id"],
-        }).json()
+        group = client.post(
+            "/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}
+        ).json()
+        created = client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "groupId": group["id"],
+            },
+        ).json()
         assert created["groupId"] == group["id"]
 
         updated = client.put(f"/api/expense-items/{created['id']}", json={"groupId": None})
@@ -304,11 +440,20 @@ class TestExpenseItems:
         assert updated.json()["groupId"] is None
 
     def test_update_omitting_group_id_leaves_it_unchanged(self, client: TestClient):
-        group = client.post("/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}).json()
-        created = client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026,
-            "groupId": group["id"],
-        }).json()
+        group = client.post(
+            "/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}
+        ).json()
+        created = client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "groupId": group["id"],
+            },
+        ).json()
 
         updated = client.put(f"/api/expense-items/{created['id']}", json={"amount": 150})
 
@@ -320,13 +465,27 @@ class TestExpenseItems:
         """Регрессия: create_expense_item брал expenses[-1] из списка,
         отсортированного `ORDER BY half, id` — при создании half=1, когда в
         периоде уже есть half=2, [-1] был бы чужой записью."""
-        client.post("/api/expense-items", json={
-            "name": "Существующий (half=2)", "amount": 999, "half": 2, "month": 8, "year": 2026,
-        })
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Существующий (half=2)",
+                "amount": 999,
+                "half": 2,
+                "month": 8,
+                "year": 2026,
+            },
+        )
 
-        created = client.post("/api/expense-items", json={
-            "name": "Новый (half=1)", "amount": 100, "half": 1, "month": 8, "year": 2026,
-        }).json()
+        created = client.post(
+            "/api/expense-items",
+            json={
+                "name": "Новый (half=1)",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        ).json()
 
         assert created["name"] == "Новый (half=1)"
         assert created["amount"] == 100
@@ -337,42 +496,68 @@ class TestExpenseItems:
         assert matching[0]["name"] == "Новый (half=1)"
 
     def test_recurring_until_malformed_date_rejected(self, client: TestClient):
-        response = client.post("/api/expense-items", json={
-            "name": "X", "amount": 100, "half": 1, "month": 8, "year": 2026,
-            "isRecurring": True, "recurringUntil": "не дата",
-        })
+        response = client.post(
+            "/api/expense-items",
+            json={
+                "name": "X",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "isRecurring": True,
+                "recurringUntil": "не дата",
+            },
+        )
         assert response.status_code == 400
 
 
 class TestVacations:
     def test_create_with_range_and_get(self, client: TestClient):
-        created = client.post("/api/vacations", json={
-            "totalAmount": 15000, "payoutDate": "2025-07-04",
-            "startDate": "2025-07-07", "endDate": "2025-07-09",
-        })
+        created = client.post(
+            "/api/vacations",
+            json={
+                "totalAmount": 15000,
+                "payoutDate": "2025-07-04",
+                "startDate": "2025-07-07",
+                "endDate": "2025-07-09",
+            },
+        )
         assert created.status_code == 201
         body = created.json()
         assert body["startDate"] == "2025-07-07"
         assert body["endDate"] == "2025-07-09"
 
     def test_create_without_range_defaults_to_payout_date(self, client: TestClient):
-        created = client.post("/api/vacations", json={
-            "totalAmount": 5000, "payoutDate": "2025-07-04",
-        }).json()
+        created = client.post(
+            "/api/vacations",
+            json={
+                "totalAmount": 5000,
+                "payoutDate": "2025-07-04",
+            },
+        ).json()
         assert created["startDate"] == "2025-07-04"
         assert created["endDate"] == "2025-07-04"
 
     def test_start_after_end_rejected(self, client: TestClient):
-        response = client.post("/api/vacations", json={
-            "totalAmount": 5000, "payoutDate": "2025-07-04",
-            "startDate": "2025-07-20", "endDate": "2025-07-10",
-        })
+        response = client.post(
+            "/api/vacations",
+            json={
+                "totalAmount": 5000,
+                "payoutDate": "2025-07-04",
+                "startDate": "2025-07-20",
+                "endDate": "2025-07-10",
+            },
+        )
         assert response.status_code == 400
 
     def test_delete(self, client: TestClient):
-        created = client.post("/api/vacations", json={
-            "totalAmount": 5000, "payoutDate": "2025-07-04",
-        }).json()
+        created = client.post(
+            "/api/vacations",
+            json={
+                "totalAmount": 5000,
+                "payoutDate": "2025-07-04",
+            },
+        ).json()
         response = client.delete(f"/api/vacations/{created['id']}")
         assert response.status_code == 204
 
@@ -383,13 +568,21 @@ class TestVacations:
         отсортированного `ORDER BY payout_date` — при создании отпускных с
         более РАННЕЙ датой выплаты, чем у уже существующих, [-1] был бы
         чужой записью."""
-        existing = client.post("/api/vacations", json={
-            "totalAmount": 999, "payoutDate": "2025-07-20",
-        }).json()
+        existing = client.post(
+            "/api/vacations",
+            json={
+                "totalAmount": 999,
+                "payoutDate": "2025-07-20",
+            },
+        ).json()
 
-        created = client.post("/api/vacations", json={
-            "totalAmount": 5000, "payoutDate": "2025-07-01",  # раньше существующей
-        }).json()
+        created = client.post(
+            "/api/vacations",
+            json={
+                "totalAmount": 5000,
+                "payoutDate": "2025-07-01",  # раньше существующей
+            },
+        ).json()
 
         assert created["totalAmount"] == 5000
         assert created["payoutDate"] == "2025-07-01"
@@ -398,24 +591,39 @@ class TestVacations:
 
 class TestBirthdays:
     def test_create_and_list(self, client: TestClient):
-        created = client.post("/api/birthdays", json={
-            "name": "Иванов", "birthDate": "15.03.1990", "giftAmount": 3000,
-        })
+        created = client.post(
+            "/api/birthdays",
+            json={
+                "name": "Иванов",
+                "birthDate": "15.03.1990",
+                "giftAmount": 3000,
+            },
+        )
         assert created.status_code == 201
         assert len(client.get("/api/birthdays").json()) == 1
 
     def test_invalid_date_format_rejected(self, client: TestClient):
         # Формат ДД.ММ.ГГГГ проверяется вручную в create_birthday (400),
         # а не через pydantic field-валидатор (что дало бы 422).
-        response = client.post("/api/birthdays", json={
-            "name": "Иванов", "birthDate": "1990-03-15", "giftAmount": 3000,
-        })
+        response = client.post(
+            "/api/birthdays",
+            json={
+                "name": "Иванов",
+                "birthDate": "1990-03-15",
+                "giftAmount": 3000,
+            },
+        )
         assert response.status_code == 400
 
     def test_update_partial_fields(self, client: TestClient):
-        created = client.post("/api/birthdays", json={
-            "name": "Иванов", "birthDate": "15.03.1990", "giftAmount": 3000,
-        }).json()
+        created = client.post(
+            "/api/birthdays",
+            json={
+                "name": "Иванов",
+                "birthDate": "15.03.1990",
+                "giftAmount": 3000,
+            },
+        ).json()
 
         updated = client.put(f"/api/birthdays/{created['id']}", json={"giftAmount": 4500})
 
@@ -426,9 +634,14 @@ class TestBirthdays:
         assert body["birthDate"] == "15.03.1990"  # не изменилось
 
     def test_update_invalid_date_rejected(self, client: TestClient):
-        created = client.post("/api/birthdays", json={
-            "name": "Иванов", "birthDate": "15.03.1990", "giftAmount": 3000,
-        }).json()
+        created = client.post(
+            "/api/birthdays",
+            json={
+                "name": "Иванов",
+                "birthDate": "15.03.1990",
+                "giftAmount": 3000,
+            },
+        ).json()
 
         response = client.put(f"/api/birthdays/{created['id']}", json={"birthDate": "not-a-date"})
 
@@ -445,13 +658,23 @@ class TestBirthdays:
         отсортированного по birth_date — при создании ДР, который в
         (тогда лексикографической) сортировке строк оказывался не последним,
         [-1] был бы чужой записью."""
-        existing = client.post("/api/birthdays", json={
-            "name": "Существующий", "birthDate": "20.05.1990", "giftAmount": 999,
-        }).json()
+        existing = client.post(
+            "/api/birthdays",
+            json={
+                "name": "Существующий",
+                "birthDate": "20.05.1990",
+                "giftAmount": 999,
+            },
+        ).json()
 
-        created = client.post("/api/birthdays", json={
-            "name": "Новый", "birthDate": "01.01.1990", "giftAmount": 3000,
-        }).json()
+        created = client.post(
+            "/api/birthdays",
+            json={
+                "name": "Новый",
+                "birthDate": "01.01.1990",
+                "giftAmount": 3000,
+            },
+        ).json()
 
         assert created["name"] == "Новый"
         assert created["giftAmount"] == 3000
@@ -459,10 +682,16 @@ class TestBirthdays:
 
     def test_upcoming_endpoint(self, client: TestClient):
         from datetime import date, timedelta
+
         bd_date = date.today() + timedelta(days=5 + 14)
-        client.post("/api/birthdays", json={
-            "name": "Скоро", "birthDate": bd_date.strftime("%d.%m.%Y"), "giftAmount": 3000,
-        })
+        client.post(
+            "/api/birthdays",
+            json={
+                "name": "Скоро",
+                "birthDate": bd_date.strftime("%d.%m.%Y"),
+                "giftAmount": 3000,
+            },
+        )
 
         response = client.get("/api/birthdays/upcoming", params={"days": 30})
 
@@ -482,9 +711,14 @@ class TestBirthdays:
 
         today = date.today()
         bd_date = today + timedelta(days=5)
-        client.post("/api/birthdays", json={
-            "name": "Тест", "birthDate": bd_date.strftime("%d.%m.%Y"), "giftAmount": 2000,
-        })
+        client.post(
+            "/api/birthdays",
+            json={
+                "name": "Тест",
+                "birthDate": bd_date.strftime("%d.%m.%Y"),
+                "giftAmount": 2000,
+            },
+        )
 
         default_settings = {"payout_day1": "10", "payout_day2": "25"}
         service = BirthdayService(get_setting=lambda k: default_settings.get(k, ""))
@@ -501,9 +735,13 @@ class TestBirthdays:
             return
 
         assert response.json()["created"] == 1
-        expenses = client.get("/api/expense-items", params={
-            "month": expected_month, "year": expected_year,
-        }).json()
+        expenses = client.get(
+            "/api/expense-items",
+            params={
+                "month": expected_month,
+                "year": expected_year,
+            },
+        ).json()
         assert len(expenses) == 1
         assert expenses[0]["amount"] == 2000
         assert expenses[0]["half"] == expected_half
@@ -511,13 +749,23 @@ class TestBirthdays:
 
 class TestDebts:
     def test_create_add_repayment_and_delete(self, client: TestClient):
-        debt = client.post("/api/debts", json={
-            "title": "Свете", "totalAmount": 29000, "month": 1, "year": 2026,
-        }).json()
+        debt = client.post(
+            "/api/debts",
+            json={
+                "title": "Свете",
+                "totalAmount": 29000,
+                "month": 1,
+                "year": 2026,
+            },
+        ).json()
 
-        repayment = client.post(f"/api/debts/{debt['id']}/repayments", json={
-            "amount": 1100, "date": "2026-01-05",
-        })
+        repayment = client.post(
+            f"/api/debts/{debt['id']}/repayments",
+            json={
+                "amount": 1100,
+                "date": "2026-01-05",
+            },
+        )
         assert repayment.status_code == 201
 
         listed = client.get("/api/debts").json()
@@ -527,32 +775,56 @@ class TestDebts:
         assert response.status_code == 204
 
     def test_repayment_on_missing_debt_returns_404(self, client: TestClient):
-        response = client.post("/api/debts/9999/repayments", json={
-            "amount": 100, "date": "2026-01-05",
-        })
+        response = client.post(
+            "/api/debts/9999/repayments",
+            json={
+                "amount": 100,
+                "date": "2026-01-05",
+            },
+        )
         assert response.status_code == 404
 
     def test_repayment_malformed_date_rejected(self, client: TestClient):
-        debt = client.post("/api/debts", json={
-            "title": "X", "totalAmount": 1000, "month": 1, "year": 2026,
-        }).json()
+        debt = client.post(
+            "/api/debts",
+            json={
+                "title": "X",
+                "totalAmount": 1000,
+                "month": 1,
+                "year": 2026,
+            },
+        ).json()
 
-        response = client.post(f"/api/debts/{debt['id']}/repayments", json={
-            "amount": 100, "date": "не дата",
-        })
+        response = client.post(
+            f"/api/debts/{debt['id']}/repayments",
+            json={
+                "amount": 100,
+                "date": "не дата",
+            },
+        )
 
         assert response.status_code == 400
 
     def test_debt_response_exposes_repaid_and_remaining_amount(self, client: TestClient):
-        debt = client.post("/api/debts", json={
-            "title": "Света", "totalAmount": 29000, "month": 1, "year": 2026,
-        }).json()
+        debt = client.post(
+            "/api/debts",
+            json={
+                "title": "Света",
+                "totalAmount": 29000,
+                "month": 1,
+                "year": 2026,
+            },
+        ).json()
         assert debt["repaidAmount"] == 0
         assert debt["remainingAmount"] == 29000
 
-        client.post(f"/api/debts/{debt['id']}/repayments", json={
-            "amount": 3800, "date": "2026-01-05",
-        })
+        client.post(
+            f"/api/debts/{debt['id']}/repayments",
+            json={
+                "amount": 3800,
+                "date": "2026-01-05",
+            },
+        )
 
         listed = client.get("/api/debts").json()[0]
         assert listed["repaidAmount"] == pytest.approx(3800.0)
@@ -564,16 +836,30 @@ class TestDebts:
         """Регрессия: add_debt_repayment брал repayments[-1] из списка,
         отсортированного `ORDER BY date` — при добавлении погашения с более
         РАННЕЙ датой, чем у уже существующего, [-1] был бы чужой записью."""
-        debt = client.post("/api/debts", json={
-            "title": "X", "totalAmount": 10000, "month": 1, "year": 2026,
-        }).json()
-        existing = client.post(f"/api/debts/{debt['id']}/repayments", json={
-            "amount": 999, "date": "2026-01-20",
-        }).json()
+        debt = client.post(
+            "/api/debts",
+            json={
+                "title": "X",
+                "totalAmount": 10000,
+                "month": 1,
+                "year": 2026,
+            },
+        ).json()
+        existing = client.post(
+            f"/api/debts/{debt['id']}/repayments",
+            json={
+                "amount": 999,
+                "date": "2026-01-20",
+            },
+        ).json()
 
-        created = client.post(f"/api/debts/{debt['id']}/repayments", json={
-            "amount": 500, "date": "2026-01-01",  # раньше существующего платежа
-        }).json()
+        created = client.post(
+            f"/api/debts/{debt['id']}/repayments",
+            json={
+                "amount": 500,
+                "date": "2026-01-01",  # раньше существующего платежа
+            },
+        ).json()
 
         assert created["amount"] == 500
         assert created["date"] == "2026-01-01"
@@ -600,9 +886,16 @@ class TestBackup:
         api_module.app.dependency_overrides[api_module.get_db] = override_get_db
         try:
             with TestClient(api_module.app) as c:
-                c.post("/api/expense-items", json={
-                    "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026,
-                })
+                c.post(
+                    "/api/expense-items",
+                    json={
+                        "name": "Молоко",
+                        "amount": 100,
+                        "half": 1,
+                        "month": 8,
+                        "year": 2026,
+                    },
+                )
                 response = c.get("/api/backup")
 
                 assert response.status_code == 200
@@ -614,14 +907,30 @@ class TestBackup:
 
 class TestAnalytics:
     def test_summary_groups_by_category(self, client: TestClient):
-        group = client.post("/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}).json()
-        client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026,
-            "groupId": group["id"],
-        })
-        client.post("/api/expense-items", json={
-            "name": "Без группы", "amount": 50, "half": 1, "month": 8, "year": 2026,
-        })
+        group = client.post(
+            "/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}
+        ).json()
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "groupId": group["id"],
+            },
+        )
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Без группы",
+                "amount": 50,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        )
 
         response = client.get("/api/analytics/summary", params={"month": 8, "year": 2026})
 
@@ -634,35 +943,72 @@ class TestAnalytics:
     def test_summary_exposes_group_id_and_monthly_limit_for_overspend_highlighting(
         self, client: TestClient
     ):
-        group = client.post("/api/expense-groups", json={
-            "name": "Продукты", "color": "#FF0000", "monthlyLimit": 200,
-        }).json()
-        client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 250, "half": 1, "month": 8, "year": 2026,
-            "groupId": group["id"],
-        })
-        client.post("/api/expense-items", json={
-            "name": "Без группы", "amount": 50, "half": 1, "month": 8, "year": 2026,
-        })
+        group = client.post(
+            "/api/expense-groups",
+            json={
+                "name": "Продукты",
+                "color": "#FF0000",
+                "monthlyLimit": 200,
+            },
+        ).json()
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 250,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "groupId": group["id"],
+            },
+        )
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Без группы",
+                "amount": 50,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        )
 
         response = client.get("/api/analytics/summary", params={"month": 8, "year": 2026})
 
         categories = {c["name"]: c for c in response.json()["categories"]}
         assert categories["Продукты"]["groupId"] == group["id"]
         assert categories["Продукты"]["monthlyLimit"] == 200
-        assert categories["Продукты"]["amount"] > categories["Продукты"]["monthlyLimit"]  # превышение
+        assert (
+            categories["Продукты"]["amount"] > categories["Продукты"]["monthlyLimit"]
+        )  # превышение
         assert categories["Без группы"]["groupId"] is None
         assert categories["Без группы"]["monthlyLimit"] is None
 
     def test_trend_returns_months_in_chronological_order(self, client: TestClient):
-        client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 6, "year": 2026,
-        })
-        client.post("/api/expense-items", json={
-            "name": "Хлеб", "amount": 50, "half": 1, "month": 8, "year": 2026,
-        })
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 6,
+                "year": 2026,
+            },
+        )
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Хлеб",
+                "amount": 50,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        )
 
-        response = client.get("/api/analytics/trend", params={"month": 8, "year": 2026, "months": 3})
+        response = client.get(
+            "/api/analytics/trend", params={"month": 8, "year": 2026, "months": 3}
+        )
 
         data = response.json()["months"]
         assert [(m["year"], m["month"]) for m in data] == [(2026, 6), (2026, 7), (2026, 8)]
@@ -672,32 +1018,65 @@ class TestAnalytics:
 
     def test_trend_handles_year_wraparound(self, client: TestClient):
         # Февраль 2026, 3 месяца -> должно уйти в декабрь 2025.
-        response = client.get("/api/analytics/trend", params={"month": 2, "year": 2026, "months": 3})
+        response = client.get(
+            "/api/analytics/trend", params={"month": 2, "year": 2026, "months": 3}
+        )
 
         data = response.json()["months"]
         assert [(m["year"], m["month"]) for m in data] == [(2025, 12), (2026, 1), (2026, 2)]
 
     def test_trend_projects_recurring_expense_into_every_month(self, client: TestClient):
-        client.post("/api/expense-items", json={
-            "name": "Подписка", "amount": 500, "half": 1, "month": 6, "year": 2026,
-            "isRecurring": True, "recurringUntil": None,
-        })
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Подписка",
+                "amount": 500,
+                "half": 1,
+                "month": 6,
+                "year": 2026,
+                "isRecurring": True,
+                "recurringUntil": None,
+            },
+        )
 
-        response = client.get("/api/analytics/trend", params={"month": 8, "year": 2026, "months": 3})
+        response = client.get(
+            "/api/analytics/trend", params={"month": 8, "year": 2026, "months": 3}
+        )
 
         totals = [m["total"] for m in response.json()["months"]]
         assert totals == [pytest.approx(500.0)] * 3
 
-    def test_trend_groups_categories_by_group_id_with_color_and_none_bucket(self, client: TestClient):
-        group = client.post("/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}).json()
-        client.post("/api/expense-items", json={
-            "name": "Молоко", "amount": 100, "half": 1, "month": 8, "year": 2026, "groupId": group["id"],
-        })
-        client.post("/api/expense-items", json={
-            "name": "Прочее", "amount": 30, "half": 1, "month": 8, "year": 2026,
-        })
+    def test_trend_groups_categories_by_group_id_with_color_and_none_bucket(
+        self, client: TestClient
+    ):
+        group = client.post(
+            "/api/expense-groups", json={"name": "Продукты", "color": "#FF0000"}
+        ).json()
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Молоко",
+                "amount": 100,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "groupId": group["id"],
+            },
+        )
+        client.post(
+            "/api/expense-items",
+            json={
+                "name": "Прочее",
+                "amount": 30,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+            },
+        )
 
-        response = client.get("/api/analytics/trend", params={"month": 8, "year": 2026, "months": 2})
+        response = client.get(
+            "/api/analytics/trend", params={"month": 8, "year": 2026, "months": 2}
+        )
 
         last_month = response.json()["months"][-1]
         by_name = {c["name"]: c for c in last_month["categories"]}

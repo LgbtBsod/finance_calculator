@@ -174,8 +174,13 @@ class TestRecurringExpenseProjection:
 
     def test_recurring_until_stops_projection_after_that_month(self, db: DatabaseManager):
         db.add_expense(
-            "Кредит", 5000.0, half=1, month=1, year=2026,
-            is_recurring=True, recurring_until="2026-03-15",
+            "Кредит",
+            5000.0,
+            half=1,
+            month=1,
+            year=2026,
+            is_recurring=True,
+            recurring_until="2026-03-15",
         )
 
         assert len(db.get_expenses(month=3, year=2026)) == 1  # месяц окончания — ещё включается
@@ -183,8 +188,13 @@ class TestRecurringExpenseProjection:
 
     def test_recurring_until_across_year_boundary(self, db: DatabaseManager):
         db.add_expense(
-            "Кредит", 5000.0, half=1, month=11, year=2025,
-            is_recurring=True, recurring_until="2026-01-31",
+            "Кредит",
+            5000.0,
+            half=1,
+            month=11,
+            year=2025,
+            is_recurring=True,
+            recurring_until="2026-01-31",
         )
 
         assert len(db.get_expenses(month=1, year=2026)) == 1
@@ -214,8 +224,13 @@ class TestRecurringExpenseProjection:
 
     def test_update_without_recurring_until_kwarg_leaves_it_unchanged(self, db: DatabaseManager):
         db.add_expense(
-            "Кредит", 5000.0, half=1, month=8, year=2026,
-            is_recurring=True, recurring_until="2026-12-31",
+            "Кредит",
+            5000.0,
+            half=1,
+            month=8,
+            year=2026,
+            is_recurring=True,
+            recurring_until="2026-12-31",
         )
         eid = db.get_expenses()[0]["id"]
 
@@ -298,10 +313,13 @@ class TestCalendarCache:
         ]
 
     def test_get_calendar_month_filters_out_other_months(self, db: DatabaseManager):
-        db.save_calendar_data(2026, [
-            ("2026-08-31", 1, 0, 0),
-            ("2026-09-01", 1, 0, 0),
-        ])
+        db.save_calendar_data(
+            2026,
+            [
+                ("2026-08-31", 1, 0, 0),
+                ("2026-09-01", 1, 0, 0),
+            ],
+        )
 
         august = db.get_calendar_month(2026, 8)
 
@@ -325,9 +343,7 @@ class TestCalendarCache:
         assert db.calendar_needs_fill(2026) is True
         assert db.calendar_needs_fill(2025) is False
 
-    def test_save_calendar_data_overwrites_existing_row_for_same_date(
-        self, db: DatabaseManager
-    ):
+    def test_save_calendar_data_overwrites_existing_row_for_same_date(self, db: DatabaseManager):
         """INSERT OR REPLACE — повторное сохранение той же даты должно
         обновить строку, а не завести дубликат/упасть на PRIMARY KEY."""
         db.save_calendar_data(2026, [("2026-08-01", 1, 0, 0)])
@@ -336,7 +352,12 @@ class TestCalendarCache:
         month = db.get_calendar_month(2026, 8)
 
         assert len(month) == 1
-        assert month[0] == {"date": "2026-08-01", "is_working": 0, "is_holiday": 1, "is_shortened": 0}
+        assert month[0] == {
+            "date": "2026-08-01",
+            "is_working": 0,
+            "is_holiday": 1,
+            "is_shortened": 0,
+        }
 
     def test_corrections_roundtrip(self, db: DatabaseManager):
         rows = [

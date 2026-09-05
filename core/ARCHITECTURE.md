@@ -72,12 +72,12 @@ core/
 
 **Ключевые методы:**
 ```python
-core.register_module(name, module)     # Регистрация модуля
+core.register_module(name, module)  # Регистрация модуля
 core.execute(module, operation, **kw)  # Выполнение операции модуля
-core.request_db(operation, **kw)       # Запрос к БД
-core.cache_set(key, value, ttl)        # Запись в кэш
-core.cache_get(key)                    # Чтение из кэша
-core.cache_delete(key)                 # Удаление из кэша
+core.request_db(operation, **kw)  # Запрос к БД
+core.cache_set(key, value, ttl)  # Запись в кэш
+core.cache_get(key)  # Чтение из кэша
+core.cache_delete(key)  # Удаление из кэша
 ```
 
 **Паттерн Singleton:** Ядро всегда существует в единственном экземпляре.
@@ -119,13 +119,13 @@ db.execute_query(sql_text, params)  # Для сложных запросов
 
 **Операции:**
 ```python
-cache.set(key, value, ttl=None)      # Запись с опциональным TTL
-cache.get(key)                       # Чтение (None если нет или истёк)
-cache.delete(key)                    # Удаление
-cache.exists(key)                    # Проверка существования
+cache.set(key, value, ttl=None)  # Запись с опциональным TTL
+cache.get(key)  # Чтение (None если нет или истёк)
+cache.delete(key)  # Удаление
+cache.exists(key)  # Проверка существования
 cache.get_or_set(key, default_func)  # Получить или вычислить
-cache.clear()                        # Очистка всего кэша
-cache.stats()                        # Статистика
+cache.clear()  # Очистка всего кэша
+cache.stats()  # Статистика
 ```
 
 ### 4. Модуль калькулятора (modules/calculator/__init__.py)
@@ -181,8 +181,8 @@ from core.main import initialize_system
 core = initialize_system(db_url="sqlite:///mydb.db")
 
 # Получение доступа к модулям
-api = core.get_module('api')
-calculator = core.get_module('calculator')
+api = core.get_module("api")
+calculator = core.get_module("calculator")
 ```
 
 ### Работа через ядро
@@ -193,22 +193,19 @@ from core.kernel import get_core
 core = get_core()
 
 # Создание сотрудника через API -> Core -> DB
-result = core.execute('api', 'create_employee',
-                      name="Иван Иванов",
-                      position="Разработчик",
-                      salary=150000.0)
+result = core.execute(
+    "api", "create_employee", name="Иван Иванов", position="Разработчик", salary=150000.0
+)
 
 # Расчёт зарплаты через Core -> Calculator -> DB
-salary = core.execute('calculator', 'calculate_salary',
-                      employee_id=1,
-                      bonus=20000.0)
+salary = core.execute("calculator", "calculate_salary", employee_id=1, bonus=20000.0)
 
 # Прямой запрос к БД через Core -> DB
-employee = core.request_db('get_employee', employee_id=1)
+employee = core.request_db("get_employee", employee_id=1)
 
 # Работа с кэшем
-core.cache_set('my_key', {'data': 'value'}, ttl=300)
-cached = core.cache_get('my_key')
+core.cache_set("my_key", {"data": "value"}, ttl=300)
+cached = core.cache_get("my_key")
 ```
 
 ### Изоляция модулей
@@ -218,8 +215,9 @@ cached = core.cache_get('my_key')
 class CalculatorModule:
     def calculate_salary(self, employee_id):
         # Получаем данные через ядро
-        employee = self._core.request_db('get_employee', employee_id=employee_id)
+        employee = self._core.request_db("get_employee", employee_id=employee_id)
         ...
+
 
 # НЕПРАВИЛЬНО: Прямое обращение к модулю БД
 class CalculatorModule:

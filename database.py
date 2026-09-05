@@ -202,23 +202,18 @@ class DatabaseManager:
         таблице, поэтому недостающие столбцы добавляем явно (идемпотентно).
         """
         vacation_cols = {
-            row["name"]
-            for row in c.execute("PRAGMA table_info(vacations)").fetchall()
+            row["name"] for row in c.execute("PRAGMA table_info(vacations)").fetchall()
         }
         for column in ("start_date", "end_date"):
             if column not in vacation_cols:
                 c.execute(f"ALTER TABLE vacations ADD COLUMN {column} TEXT")
 
-        expense_cols = {
-            row["name"]
-            for row in c.execute("PRAGMA table_info(expenses)").fetchall()
-        }
+        expense_cols = {row["name"] for row in c.execute("PRAGMA table_info(expenses)").fetchall()}
         if "recurring_until" not in expense_cols:
             c.execute("ALTER TABLE expenses ADD COLUMN recurring_until TEXT")
 
         group_cols = {
-            row["name"]
-            for row in c.execute("PRAGMA table_info(expense_groups)").fetchall()
+            row["name"] for row in c.execute("PRAGMA table_info(expense_groups)").fetchall()
         }
         if "monthly_limit" not in group_cols:
             c.execute("ALTER TABLE expense_groups ADD COLUMN monthly_limit REAL")
@@ -236,12 +231,16 @@ class DatabaseManager:
             "advance_cutoff_day": str(settings.advance_cutoff_day),
             "is_advance_date_inclusive": str(settings.is_advance_date_inclusive).lower(),
             "account_shortened": str(settings.account_shortened).lower(),
-            "payout_day1": str(getattr(settings, 'payout_day1', 10)),
-            "payout_day2": str(getattr(settings, 'payout_day2', 25)),
-            "move_weekend_to_friday": str(getattr(settings, 'move_weekend_to_friday', False)).lower(),
-            "salary_calculation_method": getattr(settings, 'salary_calculation_method', 'proportional'),
-            "first_half_ratio": str(getattr(settings, 'first_half_ratio', 0.4)),
-            "second_half_ratio": str(getattr(settings, 'second_half_ratio', 0.6)),
+            "payout_day1": str(getattr(settings, "payout_day1", 10)),
+            "payout_day2": str(getattr(settings, "payout_day2", 25)),
+            "move_weekend_to_friday": str(
+                getattr(settings, "move_weekend_to_friday", False)
+            ).lower(),
+            "salary_calculation_method": getattr(
+                settings, "salary_calculation_method", "proportional"
+            ),
+            "first_half_ratio": str(getattr(settings, "first_half_ratio", 0.4)),
+            "second_half_ratio": str(getattr(settings, "second_half_ratio", 0.6)),
         }
         for k, v in defaults.items():
             c.execute(
@@ -256,9 +255,7 @@ class DatabaseManager:
 
     def get_setting(self, key: str) -> str:
         with self._transaction() as c:
-            r = c.execute(
-                "SELECT value FROM settings WHERE key=?", (key,)
-            ).fetchone()
+            r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
             return r["value"] if r else ""
 
     def set_setting(self, key: str, value: str) -> None:
@@ -295,9 +292,7 @@ class DatabaseManager:
                 (f"{year}-%",),
             )
 
-    def get_calendar_month(
-        self, year: int, month: int
-    ) -> list[CalendarRow]:
+    def get_calendar_month(self, year: int, month: int) -> list[CalendarRow]:
         with self._transaction() as c:
             prefix = f"{year}-{month:02d}"
             rows = c.execute(
@@ -314,8 +309,7 @@ class DatabaseManager:
     def get_corrections(self) -> list[CorrectionRow]:
         with self._transaction() as c:
             rows = c.execute(
-                "SELECT date, kind, source FROM calendar_corrections "
-                "ORDER BY date"
+                "SELECT date, kind, source FROM calendar_corrections ORDER BY date"
             ).fetchall()
             return [CorrectionRow(**dict(r)) for r in rows]
 
@@ -337,13 +331,10 @@ class DatabaseManager:
     #  BIRTHDAYS
     # ═════════════════════════════════════════════════════════
 
-    def add_birthday(
-        self, name: str, birth_date: str, gift_amount: float
-    ) -> int:
+    def add_birthday(self, name: str, birth_date: str, gift_amount: float) -> int:
         with self._transaction() as c:
             cursor = c.execute(
-                "INSERT INTO birthdays (name, birth_date, gift_amount) "
-                "VALUES (?,?,?)",
+                "INSERT INTO birthdays (name, birth_date, gift_amount) VALUES (?,?,?)",
                 (name, birth_date, gift_amount),
             )
             return cursor.lastrowid
@@ -373,8 +364,7 @@ class DatabaseManager:
     ) -> None:
         with self._transaction() as c:
             c.execute(
-                "UPDATE birthdays SET name=?, birth_date=?, gift_amount=? "
-                "WHERE id=?",
+                "UPDATE birthdays SET name=?, birth_date=?, gift_amount=? WHERE id=?",
                 (name, birth_date, gift_amount, bid),
             )
 
@@ -400,8 +390,15 @@ class DatabaseManager:
                 "(name,amount,half,month,year,is_recurring,is_inclusive,group_id,recurring_until) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
                 (
-                    name, amount, half, month, year,
-                    int(is_recurring), int(is_inclusive), group_id, recurring_until,
+                    name,
+                    amount,
+                    half,
+                    month,
+                    year,
+                    int(is_recurring),
+                    int(is_inclusive),
+                    group_id,
+                    recurring_until,
                 ),
             )
             return cursor.lastrowid
@@ -486,7 +483,7 @@ class DatabaseManager:
             current = c.execute(
                 "SELECT name, amount, half, is_recurring, group_id, recurring_until "
                 "FROM expenses WHERE id=?",
-                (eid,)
+                (eid,),
             ).fetchone()
 
             if not current:
@@ -496,7 +493,9 @@ class DatabaseManager:
             new_name = name if name is not None else current["name"]
             new_amount = amount if amount is not None else current["amount"]
             new_half = half if half is not None else current["half"]
-            new_is_recurring = is_recurring if is_recurring is not None else bool(current["is_recurring"])
+            new_is_recurring = (
+                is_recurring if is_recurring is not None else bool(current["is_recurring"])
+            )
             new_group_id = current["group_id"] if group_id is _UNSET else group_id
             new_recurring_until = (
                 current["recurring_until"] if recurring_until is _UNSET else recurring_until
@@ -506,8 +505,13 @@ class DatabaseManager:
                 "UPDATE expenses SET name=?, amount=?, half=?, is_recurring=?, "
                 "group_id=?, recurring_until=? WHERE id=?",
                 (
-                    new_name, new_amount, new_half, int(new_is_recurring),
-                    new_group_id, new_recurring_until, eid,
+                    new_name,
+                    new_amount,
+                    new_half,
+                    int(new_is_recurring),
+                    new_group_id,
+                    new_recurring_until,
+                    eid,
                 ),
             )
 
@@ -635,9 +639,7 @@ class DatabaseManager:
         "без группы" (group_id=NULL), иначе удаление упало бы с
         FOREIGN KEY constraint failed при наличии ссылающихся расходов."""
         with self._transaction() as c:
-            c.execute(
-                "UPDATE expenses SET group_id=NULL WHERE group_id=?", (group_id,)
-            )
+            c.execute("UPDATE expenses SET group_id=NULL WHERE group_id=?", (group_id,))
             c.execute("DELETE FROM expense_groups WHERE id=?", (group_id,))
 
     # ═════════════════════════════════════════════════════════
@@ -696,8 +698,7 @@ class DatabaseManager:
     ) -> int:
         with self._transaction() as c:
             cursor = c.execute(
-                "INSERT INTO debt_repayments (debt_id, amount, date, note) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO debt_repayments (debt_id, amount, date, note) VALUES (?, ?, ?, ?)",
                 (debt_id, amount, date, note),
             )
             return cursor.lastrowid

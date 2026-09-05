@@ -15,10 +15,12 @@ Best Practices:
 """
 
 from __future__ import annotations
-from typing import Any, Dict, Optional, Callable
-from cachetools import TTLCache, LRUCache
-from cachetools.keys import hashkey
+
 import threading
+from collections.abc import Callable
+from typing import Any
+
+from cachetools import LRUCache, TTLCache
 from loguru import logger
 
 
@@ -26,7 +28,7 @@ class CacheManager:
     """
     Менеджер кэша на основе cachetools.
     Управляет кэшированием данных для всей системы.
-    
+
     Features:
     - TTLCache с автоматическим истечением
     - LRU eviction policy
@@ -34,29 +36,33 @@ class CacheManager:
     - Встроенная статистика (hits, misses)
     - Поддержка разных TTL для разных ключей
     """
-    
+
     def __init__(self, max_size: int = 1000, default_ttl: int = 300):
         self._max_size: int = max_size
         self._default_ttl: int = default_ttl
         self._lock = threading.RLock()
-        self._kernel: Optional[Any] = None
-        
+        self._kernel: Any | None = None
+
         # Основной кэш с TTL и LRU
         self._cache: TTLCache = TTLCache(maxsize=max_size, ttl=default_ttl)
-        
+
         # Отдельный кэш для метаданных (время установки, кастомный TTL)
         self._metadata: LRUCache = LRUCache(maxsize=max_size)
-    
+
     def set_kernel(self, kernel: Any) -> None:
         """Установка ссылки на ядро."""
         self._kernel = kernel
-    
+
     def initialize(self) -> None:
         """Инициализация менеджера кэша."""
-        logger.info(f"Инициализация Cache Manager (max_size={self._max_size}, default_ttl={self._default_ttl}s)")
-        logger.info("Cache Manager использует cachetools.TTLCache для оптимизированного кэширования")
-    
-    def get(self, key: str) -> Optional[Any]:
+        logger.info(
+            f"Инициализация Cache Manager (max_size={self._max_size}, default_ttl={self._default_ttl}s)"
+        )
+        logger.info(
+            "Cache Manager использует cachetools.TTLCache для оптимизированного кэширования"
+        )
+
+    def get(self, key: str) -> Any | None:
         """
         Получение значения из кэша.
         Автоматически удаляет истекшие записи.
@@ -69,11 +75,11 @@ class CacheManager:
             except KeyError:
                 logger.debug(f"Кэш промах: {key}")
                 return None
-    
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+
+    def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """
         Сохранение значения в кэш.
-        
+
         Args:
             key: Ключ кэша
             value: Значение
@@ -81,14 +87,12 @@ class CacheManager:
         """
         with self._lock:
             effective_ttl = ttl if ttl is not None else self._default_ttl
-            
+
             # Сохраняем метаданные
             import time
-            self._metadata[key] = {
-                'ttl': effective_ttl,
-                'created_at': time.time()
-            }
-            
+
+            self._metadata[key] = {"ttl": effective_ttl, "created_at": time.time()}
+
             # TTLCache автоматически управляет истечением
             # Для кастомного TTL создаем новый TTLCache с нужным TTL
             if ttl is not None and ttl != self._default_ttl:
@@ -103,19 +107,22 @@ class CacheManager:
                 for k in old_cache:
                     if k in self._metadata:
                         meta = self._metadata[k]
-                        elapsed = time.time() - meta.get('created_at', time.time())
-                        remaining = meta['ttl'] - elapsed
+                        elapsed = time.time() - meta.get("created_at", time.time())
+                        remaining = meta["ttl"] - elapsed
                         if remaining > 0:
                             new_cache[k] = old_cache[k]
-                            self._metadata[k] = {'ttl': meta['ttl'], 'created_at': meta['created_at']}
+                            self._metadata[k] = {
+                                "ttl": meta["ttl"],
+                                "created_at": meta["created_at"],
+                            }
                 new_cache[key] = value
                 self._cache = new_cache
             else:
                 self._cache[key] = value
-            
+
             logger.debug(f"Кэш установлен: {key} (TTL={effective_ttl}s)")
             return True
-    
+
     def delete(self, key: str) -> bool:
         """Удаление значения из кэша."""
         with self._lock:
@@ -126,7 +133,7 @@ class CacheManager:
                 logger.debug(f"Кэш удален: {key}")
                 return True
             return False
-    
+
     def clear(self) -> int:
         """Очистка всего кэша."""
         with self._lock:
@@ -135,13 +142,15 @@ class CacheManager:
             self._metadata.clear()
             logger.info(f"Кэш очищен: {count} записей удалено")
             return count
-    
+
     def exists(self, key: str) -> bool:
         """Проверка существования ключа в кэше (с учетом TTL)."""
         with self._lock:
             return key in self._cache
-    
-    def get_or_set(self, key: str, default_factory: Callable[[], Any], ttl: Optional[int] = None) -> Any:
+
+    def get_or_set(
+        self, key: str, default_factory: Callable[[], Any], ttl: int | None = None
+    ) -> Any:
         """
         Получение значения или установка по умолчанию через factory.
         Атомарная операция.
@@ -150,28 +159,28 @@ class CacheManager:
             if key in self._cache:
                 logger.debug(f"Кэш хит: {key}")
                 return self._cache[key]
-            
+
             # Ключа нет или он истек - создаем значение
             value = default_factory()
             self.set(key, value, ttl)
             logger.debug(f"Кэш установлен через factory: {key}")
             return value
-    
-    def get_stats(self) -> Dict[str, Any]:
+
+    def get_stats(self) -> dict[str, Any]:
         """Получение статистики кэша из cachetools."""
         with self._lock:
             # cachetools предоставляет cache_info()
             info = self._cache.__repr__()
-            
+
             return {
                 "size": len(self._cache),
                 "max_size": self._max_size,
-                "hits": getattr(self._cache, 'hits', 0),
-                "misses": getattr(self._cache, 'misses', 0),
+                "hits": getattr(self._cache, "hits", 0),
+                "misses": getattr(self._cache, "misses", 0),
                 "default_ttl": self._default_ttl,
-                "info": info
+                "info": info,
             }
-    
+
     def cleanup_expired(self) -> int:
         """
         Очистка всех истекших записей.
@@ -182,27 +191,27 @@ class CacheManager:
             # TTLCache автоматически очищает истекшие при доступе
             # Явная очистка через перебор
             initial_size = len(self._cache)
-            
+
             # Принудительно вызываем expire() если доступен
-            if hasattr(self._cache, 'expire'):
+            if hasattr(self._cache, "expire"):
                 self._cache.expire()
-            
+
             cleaned = initial_size - len(self._cache)
             if cleaned > 0:
                 logger.debug(f"Очищено истекших записей: {cleaned}")
-            
+
             return cleaned
-    
+
     def keys(self) -> list[str]:
         """Получение списка всех ключей в кэше."""
         with self._lock:
             return list(self._cache.keys())
-    
+
     def size(self) -> int:
         """Получение текущего размера кэша."""
         with self._lock:
             return len(self._cache)
-    
+
     def shutdown(self) -> None:
         """Завершение работы менеджера кэша."""
         logger.info("Завершение работы Cache Manager...")

@@ -95,11 +95,7 @@ class CalendarProvider(ABC):
                 if count_shortened_as_full:
                     total += 1.0
                 else:
-                    total += (
-                        shortened_factor
-                        if k == DayKind.SHORTENED
-                        else 1.0
-                    )
+                    total += shortened_factor if k == DayKind.SHORTENED else 1.0
         return total
 
 
@@ -178,9 +174,7 @@ class WorkalendarAdapter(CalendarProvider):
                 data = json.load(f)
             return sorted(int(k) for k in data if k.isdigit())
         except Exception:
-            logger.warning(
-                "Не удалось получить список доступных годов из work-calendar"
-            )
+            logger.warning("Не удалось получить список доступных годов из work-calendar")
             return []
 
 
@@ -261,9 +255,7 @@ class PDFParser:
         try:
             return self._do_parse(pdfplumber, str(pdf_path))
         except Exception:
-            logger.warning(
-                "Ошибка при парсинге PDF: %s", pdf_path, exc_info=True
-            )
+            logger.warning("Ошибка при парсинге PDF: %s", pdf_path, exc_info=True)
             return None
 
     def _do_parse(self, pdfplumber: object, pdf_path: str) -> PDFParseResult | None:
@@ -280,9 +272,7 @@ class PDFParser:
 
             # Переносы
             transfers_raw = self._extract_transfers(pages_text)
-            extra_holidays = self._parse_transfer_dates(
-                year, transfers_raw
-            )
+            extra_holidays = self._parse_transfer_dates(year, transfers_raw)
 
             # Сокращённые дни
             shortened = self._extract_shortened(year, pages_text)
@@ -321,21 +311,21 @@ class PDFParser:
                     in_block = True
                     continue
                 if in_block:
-                    if stripped.startswith("Следовательно") or stripped.startswith(
-                        "Дополнительно"
-                    ):
+                    if stripped.startswith("Следовательно") or stripped.startswith("Дополнительно"):
                         in_block = False
                         continue
                     if stripped.endswith("дней:") or stripped.endswith("дни:"):
                         continue
-                    if ("на" in stripped and "января" in stripped) or "декабря" in stripped or re.search(r"на\s+\d", stripped):
+                    if (
+                        ("на" in stripped and "января" in stripped)
+                        or "декабря" in stripped
+                        or re.search(r"на\s+\d", stripped)
+                    ):
                         transfers_raw.append(stripped)
         return transfers_raw
 
     @classmethod
-    def _parse_transfer_dates(
-        cls, year: int, transfers: list[str]
-    ) -> list[date]:
+    def _parse_transfer_dates(cls, year: int, transfers: list[str]) -> list[date]:
         """Парсит даты переносов из строк."""
         extra_holidays: list[date] = []
         for line in transfers:
@@ -348,9 +338,7 @@ class PDFParser:
         return extra_holidays
 
     @classmethod
-    def _extract_shortened(
-        cls, year: int, pages: dict[int, str]
-    ) -> list[date]:
+    def _extract_shortened(cls, year: int, pages: dict[int, str]) -> list[date]:
         """Извлекает сокращённые дни."""
         shortened: list[date] = []
         for text in pages.values():
@@ -375,7 +363,8 @@ class PDFParser:
 
     @classmethod
     def _extract_summary_table(
-        cls, pdf: object,
+        cls,
+        pdf: object,
     ) -> tuple[dict[int, int], dict[int, float]]:
         """Извлекает сводную таблицу рабочих дней/часов."""
         monthly_wd: dict[int, int] = {}
@@ -385,10 +374,7 @@ class PDFParser:
             return monthly_wd, monthly_h
 
         tables = pages[1].extract_tables()  # type: ignore[union-attr]
-        month_map = {
-            name.lower(): num
-            for name, num in MONTH_NAMES_NOMINATIVE.items()
-        }
+        month_map = {name.lower(): num for name, num in MONTH_NAMES_NOMINATIVE.items()}
         for table in tables:
             for row in table:
                 if not row or not row[0]:
@@ -400,17 +386,10 @@ class PDFParser:
                 try:
                     if row[2]:
                         monthly_wd[month_num] = int(
-                            row[2].strip()
-                            .replace("\n", "")
-                            .replace(" ", "")
+                            row[2].strip().replace("\n", "").replace(" ", "")
                         )
                     if row[4]:
-                        val = (
-                            row[4].strip()
-                            .replace("\n", "")
-                            .replace(" ", "")
-                            .replace(",", ".")
-                        )
+                        val = row[4].strip().replace("\n", "").replace(" ", "").replace(",", ".")
                         monthly_h[month_num] = float(val)
                 except (ValueError, IndexError):
                     pass
@@ -472,9 +451,7 @@ class CalendarService:
 
     # ── публичный API ─────────────────────────────────────────
 
-    def get_working_days(
-        self, year: int, month: int
-    ) -> tuple[float, float, float]:
+    def get_working_days(self, year: int, month: int) -> tuple[float, float, float]:
         """(total, half_1, half_2) с учётом настройки сокращённых дней."""
         provider = self._get_provider(year)
         cutoff = int(self._get_setting("advance_cutoff_day") or 15)
@@ -484,25 +461,30 @@ class CalendarService:
         # сокращённые дни отдельно" не имел эффекта ни при каком положении.
         account_short = self._get_setting("account_shortened") == "true"
         std_hours = float(self._get_setting("standard_hours") or 40)
-        factor = (
-            max(0.0, (std_hours / 5 - 1) / (std_hours / 5))
-            if std_hours > 0
-            else 0.875
-        )
+        factor = max(0.0, (std_hours / 5 - 1) / (std_hours / 5)) if std_hours > 0 else 0.875
 
         _, dim = cal_lib.monthrange(year, month)
         total = provider.working_days_in_range(
-            year, month, 1, dim,
+            year,
+            month,
+            1,
+            dim,
             count_shortened_as_full=not account_short,
             shortened_factor=factor,
         )
         h1 = provider.working_days_in_range(
-            year, month, 1, cutoff,
+            year,
+            month,
+            1,
+            cutoff,
             count_shortened_as_full=not account_short,
             shortened_factor=factor,
         )
         h2 = provider.working_days_in_range(
-            year, month, cutoff + 1, dim,
+            year,
+            month,
+            cutoff + 1,
+            dim,
             count_shortened_as_full=not account_short,
             shortened_factor=factor,
         )
@@ -522,12 +504,14 @@ class CalendarService:
             is_working = di.kind in (DayKind.WORKING, DayKind.SHORTENED)
             is_holiday = di.kind == DayKind.HOLIDAY
             is_short = di.kind == DayKind.SHORTENED
-            rows.append((
-                di.date.isoformat(),
-                int(is_working),
-                int(is_holiday),
-                int(is_short),
-            ))
+            rows.append(
+                (
+                    di.date.isoformat(),
+                    int(is_working),
+                    int(is_holiday),
+                    int(is_short),
+                )
+            )
         self._save_calendar_data(year, rows)
 
     def available_years(self) -> list[int]:
@@ -544,13 +528,9 @@ class CalendarService:
 
         correction_rows: list[tuple[str, str, str]] = []
         for d in result.extra_holidays:
-            correction_rows.append(
-                (d.isoformat(), CorrectionKind.EXTRA_HOLIDAY, "pdf")
-            )
+            correction_rows.append((d.isoformat(), CorrectionKind.EXTRA_HOLIDAY, "pdf"))
         for d in result.shortened_days:
-            correction_rows.append(
-                (d.isoformat(), CorrectionKind.SHORTENED, "pdf")
-            )
+            correction_rows.append((d.isoformat(), CorrectionKind.SHORTENED, "pdf"))
         self._save_corrections(result.year, correction_rows)
 
         self._clear_calendar_cache(result.year)

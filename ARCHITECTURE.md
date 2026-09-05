@@ -32,8 +32,8 @@ from config import AppSettings, get_settings
 
 settings = get_settings()
 print(settings.base_salary)  # 100000.0 (float, не str!)
-print(settings.tax_rate)     # 13.0
-print(settings.net_salary)   # 87000.0 (computed property)
+print(settings.tax_rate)  # 13.0
+print(settings.net_salary)  # 87000.0 (computed property)
 ```
 
 **Переменные окружения:**
@@ -89,10 +89,11 @@ class AppSettings(BaseSettings):
     base_salary: float = 100000.0  # ТОЛЬКО здесь
     tax_rate: float = 13.0
     kef: float = 1.0
-    
+
     @property
     def net_salary(self) -> float:
         return self.base_salary * self.kef * (1.0 - self.tax_rate / 100.0)
+
 
 def get_settings() -> AppSettings:
     return AppSettings()  # Singleton factory
@@ -145,6 +146,7 @@ class SalaryCalculator:
 base: CalendarProvider = WorkalendarAdapter()
 corrected: CalendarProvider = CorrectedCalendar(base, corrections={})
 
+
 # Оба реализуют CalendarProvider.classify() — можно использовать взаимозаменяемо
 def process_day(provider: CalendarProvider, d: date):
     return provider.classify(d)
@@ -156,6 +158,7 @@ def process_day(provider: CalendarProvider, d: date):
 ```python
 class CalendarReader(Protocol):
     def get_working_days(self, year: int, month: int) -> tuple[float, float, float]: ...
+
 
 class VacationReader(Protocol):
     def get_vacations(self, month: int | None, year: int | None) -> list[VacationRow]: ...
@@ -220,6 +223,7 @@ class AppSettings(BaseSettings):
     tax_rate: float = 13.0
     kef: float = 1.0
 
+
 # Использование везде
 settings = get_settings()
 base = settings.base_salary  # Всегда тип float, всегда валидно
@@ -231,6 +235,7 @@ base = settings.base_salary  # Всегда тип float, всегда вали�
 # Стало:
 def get_db() -> DatabaseManager:
     return DatabaseManager(DB_FILENAME)
+
 
 # Используется во всех endpoints через Depends(get_db)
 ```
@@ -262,6 +267,8 @@ class SalaryBreakdown:
     advance: float
     payout: float
     # ...
+
+
 # Нельзя изменить после создания — thread-safe, hashable
 ```
 
@@ -281,6 +288,7 @@ class ExpenseRow(TypedDict):
     month: int
     year: int
     is_recurring: bool
+
 
 # Потребители получают автодополнение полей в IDE
 ```
@@ -312,12 +320,15 @@ class MockCalendarReader:
     def get_working_days(self, year: int, month: int):
         return 20.0, 10.0, 10.0  # Детерминированные данные
 
+
 class MockVacationReader:
     def get_vacations(self, month=None, year=None):
         return []  # Пустой список для теста
 
+
 def mock_get_setting(key: str) -> str:
     return {"base_salary": "100000", "tax_rate": "13"}.get(key, "0")
+
 
 calc = SalaryCalculator(mock_get_setting, MockCalendarReader(), MockVacationReader())
 result = calc.calculate(2025, 1)  # Предсказуемый результат без БД
@@ -365,6 +376,7 @@ calc = SalaryCalculator(..., calendar=calendar, ...)
 ```python
 # work-calendar данные кэшируются
 self._days_off_cache: dict[int, set[date]] = {}
+
 
 # Connection pooling через context manager
 @contextmanager

@@ -39,8 +39,10 @@ __all__ = [
 
 # ── Перечисления ──────────────────────────────────────────────
 
+
 class DayKind(StrEnum):
     """Тип дня в производственном календаре."""
+
     WORKING = "working"
     WEEKEND = "weekend"
     HOLIDAY = "holiday"
@@ -49,18 +51,21 @@ class DayKind(StrEnum):
 
 class ExpenseHalf(IntEnum):
     """Половина месяца для расхода."""
+
     FIRST = 1
     SECOND = 2
 
 
 class CorrectionKind(StrEnum):
     """Тип поправки к календарю (из PDF или вручную)."""
+
     EXTRA_HOLIDAY = "extra_holiday"
     EXTRA_WORKING = "extra_working"
     SHORTENED = "shortened"
 
 
 # ── Frozen dataclass'ы (immutable, slotted) ─────────────────
+
 
 @dataclass(frozen=True, slots=True)
 class DayInfo:
@@ -131,8 +136,10 @@ class PDFParseResult:
 # напрямую как конкретный класс везде, кроме двух мест ниже) — удалены,
 # чтобы не поддерживать контракты без потребителей.
 
+
 class CalendarReader(Protocol):
     """Протокол поставщика рабочих дней. Реализуется CalendarService."""
+
     def get_working_days(self, year: int, month: int) -> tuple[float, float, float]:
         """(total, half_1, half_2)."""
         ...
@@ -144,6 +151,7 @@ class CalendarReader(Protocol):
 
 class VacationReader(Protocol):
     """Протокол читателя отпускных. Реализуется DatabaseManager."""
+
     def get_vacations(
         self,
         month: int | None = ...,
@@ -152,6 +160,7 @@ class VacationReader(Protocol):
 
 
 # ── TypedDict'ы (структура строк из БД) ─────────────────────
+
 
 class ExpenseRow(TypedDict):
     id: int

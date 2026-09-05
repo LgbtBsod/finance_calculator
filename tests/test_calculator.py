@@ -224,9 +224,7 @@ class TestWorkingDaysMethod:
         assert result.advance == pytest.approx(REFERENCE_NET_SALARY * 0.4, abs=0.01)
         assert result.payout == pytest.approx(REFERENCE_NET_SALARY * 0.6, abs=0.01)
 
-    def test_falls_back_to_40_60_when_calendar_reports_all_zero_days(
-        self, db: DatabaseManager
-    ):
+    def test_falls_back_to_40_60_when_calendar_reports_all_zero_days(self, db: DatabaseManager):
         """Если CalendarReader.get_working_days() вернул (0.0, 0.0, 0.0)
         (например, пустой/незаполненный производственный календарь на этот
         месяц), calculate() должен деградировать к fallback 40/60 — см.
@@ -256,9 +254,7 @@ class TestMalformedVacationDates:
     при разборе даты и пропускают такую запись (см. try/except в
     calculator.py). Тест закрепляет это СУЩЕСТВУЮЩЕЕ защитное поведение."""
 
-    def test_malformed_payout_date_is_skipped_by_distribute_vacations(
-        self, db: DatabaseManager
-    ):
+    def test_malformed_payout_date_is_skipped_by_distribute_vacations(self, db: DatabaseManager):
         db.set_setting("base_salary", "100000")
         db.set_setting("tax_rate", "0")
         db.set_setting("salary_calculation_method", "proportional")
@@ -280,9 +276,7 @@ class TestMalformedVacationDates:
         assert result.vacation_half_1 == 0.0
         assert result.vacation_half_2 == 0.0
 
-    def test_malformed_start_date_is_skipped_by_vacation_working_days(
-        self, db: DatabaseManager
-    ):
+    def test_malformed_start_date_is_skipped_by_vacation_working_days(self, db: DatabaseManager):
         """Метод working_days дополнительно прогоняет отпуска через
         _vacation_working_days (вычитание из отработанных дней) — та же
         битая дата должна быть пропущена и там."""
@@ -329,10 +323,26 @@ class TestBalance:
         db.set_setting("salary_calculation_method", "proportional")
 
         expenses = [
-            {"id": 1, "name": "Продукты", "amount": 5000.0, "half": 1, "month": 8, "year": 2026,
-             "is_recurring": False, "group_id": None},
-            {"id": 2, "name": "Бензин", "amount": 2000.0, "half": 2, "month": 8, "year": 2026,
-             "is_recurring": False, "group_id": None},
+            {
+                "id": 1,
+                "name": "Продукты",
+                "amount": 5000.0,
+                "half": 1,
+                "month": 8,
+                "year": 2026,
+                "is_recurring": False,
+                "group_id": None,
+            },
+            {
+                "id": 2,
+                "name": "Бензин",
+                "amount": 2000.0,
+                "half": 2,
+                "month": 8,
+                "year": 2026,
+                "is_recurring": False,
+                "group_id": None,
+            },
         ]
 
         result = calculator.balance(2026, 8, expenses)
@@ -357,8 +367,16 @@ class TestBirthdayService:
         today = date.today()
         # Подбираем ДР так, чтобы триггер был точно "через 5 дней" от сегодня
         from datetime import timedelta
+
         bd_date = today + timedelta(days=5 + 14)
-        birthdays = [{"id": 1, "name": "Тест", "birth_date": bd_date.strftime("%d.%m.%Y"), "gift_amount": 3000.0}]
+        birthdays = [
+            {
+                "id": 1,
+                "name": "Тест",
+                "birth_date": bd_date.strftime("%d.%m.%Y"),
+                "gift_amount": 3000.0,
+            }
+        ]
 
         alerts = birthday_service.upcoming(birthdays, days_ahead=30)
 
@@ -368,8 +386,16 @@ class TestBirthdayService:
 
     def test_upcoming_ignores_birthday_outside_window(self, birthday_service):
         from datetime import timedelta
+
         far_future = date.today() + timedelta(days=200)
-        birthdays = [{"id": 1, "name": "Далеко", "birth_date": far_future.strftime("%d.%m.%Y"), "gift_amount": 1000.0}]
+        birthdays = [
+            {
+                "id": 1,
+                "name": "Далеко",
+                "birth_date": far_future.strftime("%d.%m.%Y"),
+                "gift_amount": 1000.0,
+            }
+        ]
 
         alerts = birthday_service.upcoming(birthdays, days_ahead=30)
 
@@ -392,12 +418,21 @@ class TestBirthdayService:
         assert created_expenses[0]["year"] == 2026
 
         # Повторный вызов с уже существующим расходом (тем же месяцем/годом) — не дублирует
-        existing = [{
-            "id": 1, "name": created_expenses[0]["name"], "amount": 2000.0,
-            "half": created_expenses[0]["half"], "month": 8, "year": 2026,
-            "is_recurring": False, "group_id": None,
-        }]
-        count2 = birthday_service.auto_create_expenses(birthdays, existing, add_expense_fn, today=today)
+        existing = [
+            {
+                "id": 1,
+                "name": created_expenses[0]["name"],
+                "amount": 2000.0,
+                "half": created_expenses[0]["half"],
+                "month": 8,
+                "year": 2026,
+                "is_recurring": False,
+                "group_id": None,
+            }
+        ]
+        count2 = birthday_service.auto_create_expenses(
+            birthdays, existing, add_expense_fn, today=today
+        )
         assert count2 == 0
         assert len(created_expenses) == 1
 
@@ -520,9 +555,7 @@ class TestPayoutDates:
         assert d1 == date(2025, 12, 30)
         assert d2 == date(2026, 1, 23)
 
-    def test_included_in_salary_breakdown(
-        self, calculator: SalaryCalculator, db: DatabaseManager
-    ):
+    def test_included_in_salary_breakdown(self, calculator: SalaryCalculator, db: DatabaseManager):
         db.set_setting("base_salary", "100000")
         db.set_setting("payout_day1", "10")
         db.set_setting("payout_day2", "25")
