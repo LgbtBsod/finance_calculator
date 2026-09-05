@@ -30,32 +30,41 @@ __all__ = [
 
 # ── Базовые праздничные дни РФ (ст. 112 ТК РФ) ─────────────
 # Immutable frozenset для безопасности
-RU_BASE_HOLIDAYS: frozenset[tuple[int, int]] = frozenset([
-    # Новогодние каникулы + Рождество
-    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
-    # День защитника Отечества
-    (2, 23),
-    # Международный женский день
-    (3, 8),
-    # Праздник Весны и Труда
-    (5, 1),
-    # День Победы
-    (5, 9),
-    # День России
-    (6, 12),
-    # День народного единства
-    (11, 4),
-])
+RU_BASE_HOLIDAYS: frozenset[tuple[int, int]] = frozenset(
+    [
+        # Новогодние каникулы + Рождество
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+        (1, 5),
+        (1, 6),
+        (1, 7),
+        (1, 8),
+        # День защитника Отечества
+        (2, 23),
+        # Международный женский день
+        (3, 8),
+        # Праздник Весны и Труда
+        (5, 1),
+        # День Победы
+        (5, 9),
+        # День России
+        (6, 12),
+        # День народного единства
+        (11, 4),
+    ]
+)
 
 
 # ── Pydantic Settings для типизированных настроек приложения ─────
 class AppSettings(BaseSettings):
     """Типизированные настройки приложения (SSOT).
-    
+
     Все дефолтные значения определены ТОЛЬКО здесь.
     Поддержка переменных окружения с префиксом FINANCE_.
     """
-    
+
     model_config = SettingsConfigDict(
         env_prefix="FINANCE_",
         env_file=".env",
@@ -63,33 +72,33 @@ class AppSettings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
     )
-    
+
     # Database & Storage — абсолютные пути, привязанные к PROJECT_ROOT,
     # а не к cwd процесса (см. комментарий у PROJECT_ROOT выше).
     db_path: str = str(PROJECT_ROOT / "budget.db")
     upload_dir: Path = PROJECT_ROOT / ".upload"
-    
+
     # Salary calculation defaults
     base_salary: float = 100000.0
     tax_rate: float = 13.0
     kef: float = 1.0
     standard_hours: int = 40
-    
+
     # Advance payment settings
     advance_cutoff_day: int = 15
     is_advance_date_inclusive: bool = True
-    
+
     # Salary calculation method: "proportional" (40/60), "custom_proportions" (user-defined), or "working_days"
     salary_calculation_method: str = "proportional"
-    
+
     # Custom proportions for salary split (first_half_ratio, second_half_ratio)
     # Only used when salary_calculation_method == "custom_proportions"
     first_half_ratio: float = 0.4
     second_half_ratio: float = 0.6
-    
+
     # Account settings
     account_shortened: bool = False
-    
+
     # Payout settings
     payout_day1: int = 10
     payout_day2: int = 25
@@ -97,7 +106,7 @@ class AppSettings(BaseSettings):
     # праздничный день, зарплата должна быть выплачена накануне этого дня —
     # это обязательное правило, а не опция, поэтому по умолчанию включено.
     move_weekend_to_friday: bool = True
-    
+
     @property
     def net_salary(self) -> float:
         """Расчёт чистой зарплаты после налога."""
@@ -112,24 +121,57 @@ def get_settings() -> AppSettings:
 # ── Русские названия для парсинга PDF ───────────────────────
 # Immutable mappings
 MONTH_NAMES_GENITIVE: dict[str, int] = {
-    "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
-    "мая": 5, "июня": 6, "июля": 7, "августа": 8,
-    "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
 }
 
 MONTH_NAMES_NOMINATIVE: dict[str, int] = {
-    "январь": 1, "февраль": 2, "март": 3, "апрель": 4,
-    "май": 5, "июнь": 6, "июль": 7, "август": 8,
-    "сентябрь": 9, "октябрь": 10, "ноябрь": 11, "декабрь": 12,
+    "январь": 1,
+    "февраль": 2,
+    "март": 3,
+    "апрель": 4,
+    "май": 5,
+    "июнь": 6,
+    "июль": 7,
+    "август": 8,
+    "сентябрь": 9,
+    "октябрь": 10,
+    "ноябрь": 11,
+    "декабрь": 12,
 }
 
 MONTH_DISPLAY: tuple[str, ...] = (
-    "", "Январь", "Февраль", "Март", "Апрель",
-    "Май", "Июнь", "Июль", "Август",
-    "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+    "",
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
 )
 
 WEEKDAY_NAMES: dict[str, int] = {
-    "понедельник": 0, "вторник": 1, "среда": 2,
-    "четверг": 3, "пятница": 4, "суббота": 5, "воскресенье": 6,
+    "понедельник": 0,
+    "вторник": 1,
+    "среда": 2,
+    "четверг": 3,
+    "пятница": 4,
+    "суббота": 5,
+    "воскресенье": 6,
 }

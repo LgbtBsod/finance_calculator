@@ -104,9 +104,10 @@ def get_birthday_service(db: DatabaseManager = Depends(get_db)) -> BirthdayServi
 #  PYDANTIC REQUEST/RESPONSE MODELS (DTO для API)
 # ═══════════════════════════════════════════════════════════════
 
+
 class ExpenseGroupCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    color: str = Field(..., pattern=r'^#[0-9A-Fa-f]{6}$')
+    color: str = Field(..., pattern=r"^#[0-9A-Fa-f]{6}$")
     parentId: str | None = None
     # Необязательный месячный лимит расходов по группе — используется
     # аналитикой, чтобы подсветить превышение (см. AnalyticsPage).
@@ -115,7 +116,7 @@ class ExpenseGroupCreate(BaseModel):
 
 class ExpenseGroupUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
-    color: str | None = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
     parentId: str | None = None
     sortOrder: int | None = None
     monthlyLimit: float | None = Field(None, gt=0)
@@ -214,8 +215,12 @@ class DebtSettings(BaseModel):
 class VacationCreate(BaseModel):
     totalAmount: float = Field(..., gt=0, description="Сумма отпускных")
     payoutDate: str = Field(..., description="Дата выплаты в формате YYYY-MM-DD")
-    startDate: str | None = Field(None, description="Первый день отпуска (YYYY-MM-DD); по умолчанию = payoutDate")
-    endDate: str | None = Field(None, description="Последний день отпуска (YYYY-MM-DD); по умолчанию = payoutDate")
+    startDate: str | None = Field(
+        None, description="Первый день отпуска (YYYY-MM-DD); по умолчанию = payoutDate"
+    )
+    endDate: str | None = Field(
+        None, description="Последний день отпуска (YYYY-MM-DD); по умолчанию = payoutDate"
+    )
 
 
 class VacationResponse(BaseModel):
@@ -263,6 +268,7 @@ class SalarySettingsResponse(BaseModel):
 
 class BalanceResponse(BaseModel):
     """Полный расчёт баланса: зарплата + отпускные - расходы, по половинам месяца."""
+
     month: int
     year: int
     netSalary: float
@@ -396,6 +402,7 @@ app.add_middleware(
 #  EXPENSE GROUPS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
+
 def _group_to_response(g: dict) -> ExpenseGroupResponse:
     return ExpenseGroupResponse(
         id=g["id"],
@@ -497,6 +504,7 @@ def delete_expense_group(
 # ═══════════════════════════════════════════════════════════════
 #  EXPENSE ITEMS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
+
 
 def _expense_to_response(e: dict) -> ExpenseItemResponse:
     return ExpenseItemResponse(
@@ -627,6 +635,7 @@ def delete_expense_item(
 #  VACATIONS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
+
 @app.get("/api/vacations", response_model=list[VacationResponse])
 def get_vacations(
     month: int | None = Query(None, ge=1, le=12),
@@ -665,7 +674,9 @@ def create_vacation(
         start = date.fromisoformat(data.startDate) if data.startDate else None
         end = date.fromisoformat(data.endDate) if data.endDate else None
     except ValueError as e:
-        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD") from e
+        raise HTTPException(
+            status_code=400, detail="Неверный формат даты. Используйте YYYY-MM-DD"
+        ) from e
 
     if start and end and start > end:
         raise HTTPException(status_code=400, detail="startDate не может быть позже endDate")
@@ -703,6 +714,7 @@ def delete_vacation(
 #  BIRTHDAYS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
+
 @app.get("/api/birthdays", response_model=list[BirthdayResponse])
 def get_birthdays(db: DatabaseManager = Depends(get_db)):
     """Получить все дни рождения."""
@@ -712,7 +724,7 @@ def get_birthdays(db: DatabaseManager = Depends(get_db)):
             id=str(b.get("id", uuid.uuid4())),
             name=b["name"],
             birthDate=b["birth_date"],
-            giftAmount=b["gift_amount"]
+            giftAmount=b["gift_amount"],
         )
         for b in birthdays
     ]
@@ -730,7 +742,9 @@ def _validate_birth_date_format(value: str) -> None:
             case _:
                 raise ValueError()
     except (ValueError, IndexError) as e:
-        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте DD.MM.YYYY") from e
+        raise HTTPException(
+            status_code=400, detail="Неверный формат даты. Используйте DD.MM.YYYY"
+        ) from e
 
 
 @app.post("/api/birthdays", response_model=BirthdayResponse, status_code=201)
@@ -741,16 +755,9 @@ def create_birthday(
     """Добавить день рождения с валидацией через BirthdayCreate."""
     _validate_birth_date_format(data.birthDate)
 
-    new_id = db.add_birthday(
-        name=data.name,
-        birth_date=data.birthDate,
-        gift_amount=data.giftAmount
-    )
+    new_id = db.add_birthday(name=data.name, birth_date=data.birthDate, gift_amount=data.giftAmount)
     return BirthdayResponse(
-        id=str(new_id),
-        name=data.name,
-        birthDate=data.birthDate,
-        giftAmount=data.giftAmount
+        id=str(new_id), name=data.name, birthDate=data.birthDate, giftAmount=data.giftAmount
     )
 
 
@@ -780,7 +787,9 @@ def update_birthday(
     new_gift_amount = data.giftAmount if data.giftAmount is not None else current["gift_amount"]
 
     db.update_birthday(bid, new_name, new_birth_date, new_gift_amount)
-    return BirthdayResponse(id=str(bid), name=new_name, birthDate=new_birth_date, giftAmount=new_gift_amount)
+    return BirthdayResponse(
+        id=str(bid), name=new_name, birthDate=new_birth_date, giftAmount=new_gift_amount
+    )
 
 
 @app.delete("/api/birthdays/{birthday_id}", status_code=204)
@@ -834,6 +843,7 @@ def auto_create_birthday_expenses(db: DatabaseManager = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════
 #  SETTINGS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
+
 
 @app.get("/api/settings", response_model=SalarySettingsResponse)
 def get_settings(db: DatabaseManager = Depends(get_db)):
@@ -893,6 +903,7 @@ def update_settings(
 #  BALANCE ENDPOINT (SalaryCalculator — ранее не был подключен к API)
 # ═══════════════════════════════════════════════════════════════
 
+
 @app.get("/api/balance", response_model=BalanceResponse)
 def get_balance(
     month: int = Query(..., ge=1, le=12),
@@ -936,6 +947,7 @@ def get_balance(
 #  DEBTS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
+
 def _debt_to_response(d: dict) -> DebtResponse:
     return DebtResponse(
         id=str(d["id"]),
@@ -947,7 +959,7 @@ def _debt_to_response(d: dict) -> DebtResponse:
                 debtId=str(r["debt_id"]),
                 amount=r["amount"],
                 date=r["date"],
-                note=r["note"]
+                note=r["note"],
             )
             for r in d.get("repayments", [])
         ],
@@ -972,10 +984,7 @@ def create_debt(
 ):
     """Создать новый долг."""
     debt_id = db.create_debt(
-        title=data.title,
-        total_amount=data.totalAmount,
-        month=data.month,
-        year=data.year
+        title=data.title, total_amount=data.totalAmount, month=data.month, year=data.year
     )
     created_debt = next((d for d in db.get_debts() if d["id"] == debt_id), None)
     if created_debt is None:
@@ -1013,10 +1022,7 @@ def add_debt_repayment(
 
     try:
         new_id = db.add_debt_repayment(
-            debt_id=did,
-            amount=data.amount,
-            date=data.date,
-            note=data.note
+            debt_id=did, amount=data.amount, date=data.date, note=data.note
         )
     except Exception as e:
         # FOREIGN KEY constraint failed — долга с таким id не существует.
@@ -1051,6 +1057,7 @@ def delete_debt_repayment(
 # ═══════════════════════════════════════════════════════════════
 #  ANALYTICS ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
+
 
 @app.get("/api/analytics/summary", response_model=AnalyticsSummaryResponse)
 def get_analytics_summary(
@@ -1137,7 +1144,9 @@ def get_analytics_trend(
             )
             for gid, amount in by_group.items()
         ]
-        result.append(TrendMonth(month=pm, year=py, total=sum(by_group.values()), categories=categories))
+        result.append(
+            TrendMonth(month=pm, year=py, total=sum(by_group.values()), categories=categories)
+        )
 
     return AnalyticsTrendResponse(months=result)
 
@@ -1146,6 +1155,7 @@ def get_analytics_trend(
 #  BACKUP (все реальные финансовые данные живут в одном файле —
 #  без этого нет вообще никакой страховки на случай порчи диска)
 # ═══════════════════════════════════════════════════════════════
+
 
 @app.get("/api/backup")
 def download_backup(db: DatabaseManager = Depends(get_db)):
@@ -1183,6 +1193,7 @@ def download_backup(db: DatabaseManager = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════
 #  HEALTH CHECK
 # ═══════════════════════════════════════════════════════════════
+
 
 @app.get("/api/health")
 def health_check():
@@ -1226,6 +1237,7 @@ def serve_spa(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
+
     # 127.0.0.1, не 0.0.0.0 — как в main.py. Приложение однопользовательское,
     # без авторизации; 0.0.0.0 открыл бы полный доступ на чтение/запись
     # реальных финансовых данных всем в локальной сети.

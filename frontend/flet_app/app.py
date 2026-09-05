@@ -9,33 +9,34 @@ Best Practices:
 """
 
 from __future__ import annotations
-import flet as ft
-from typing import Optional, Dict, Any, List
-from datetime import date, datetime
+
 import logging
+from typing import Any
+
+import flet as ft
 
 logger = logging.getLogger(__name__)
 
 
 class FinanceApp(ft.Column):
     """Основное приложение Flet для управления финансами."""
-    
-    def __init__(self, kernel: Optional[Any] = None):
+
+    def __init__(self, kernel: Any | None = None):
         super().__init__()
         self._kernel = kernel
         self._current_page: str = "dashboard"
-        self._rail: Optional[ft.NavigationRail] = None
-        self._content_area: Optional[ft.Container] = None
+        self._rail: ft.NavigationRail | None = None
+        self._content_area: ft.Container | None = None
         self.expand = True
-        
+
     def did_mount(self) -> None:
         """Инициализация при монтировании."""
         logger.info("FinanceApp mounted")
-    
+
     def build(self) -> ft.Column:
         """Построение UI (вызывается Flet)."""
         return self.build_ui()
-    
+
     def build_ui(self) -> ft.Column:
         """Построение UI."""
         # Боковая панель навигации
@@ -74,14 +75,14 @@ class FinanceApp(ft.Column):
             ],
             on_change=self._on_nav_change,
         )
-        
+
         # Контент в зависимости от выбранной страницы
         self._content_area = ft.Container(
             content=self._build_dashboard(),
             expand=True,
             padding=20,
         )
-        
+
         self.controls = [
             ft.Row(
                 controls=[
@@ -92,14 +93,14 @@ class FinanceApp(ft.Column):
                 expand=True,
             ),
         ]
-        
+
         return self
-    
+
     def _on_nav_change(self, e: ft.ControlEvent) -> None:
         """Обработка изменения навигации."""
         index = e.control.selected_index
         pages = ["dashboard", "balance", "expenses", "calendar", "settings"]
-        
+
         if 0 <= index < len(pages):
             self._current_page = pages[index]
             page_content = {
@@ -109,10 +110,12 @@ class FinanceApp(ft.Column):
                 "calendar": self._build_calendar_page(),
                 "settings": self._build_settings_page(),
             }
-            
-            self._content_area.content = page_content.get(self._current_page, self._build_dashboard())
+
+            self._content_area.content = page_content.get(
+                self._current_page, self._build_dashboard()
+            )
             self.update()
-    
+
     def _build_dashboard(self) -> ft.Column:
         """Построение дашборда."""
         return ft.Column(
@@ -130,7 +133,7 @@ class FinanceApp(ft.Column):
             ],
             expand=True,
         )
-    
+
     def _build_summary_card(self, title: str, value: str, color: str) -> ft.Card:
         """Создание карточки сводки."""
         return ft.Card(
@@ -147,7 +150,7 @@ class FinanceApp(ft.Column):
             ),
             elevation=2,
         )
-    
+
     def _build_balance_page(self) -> ft.Column:
         """Страница баланса."""
         return ft.Column(
@@ -158,7 +161,7 @@ class FinanceApp(ft.Column):
             ],
             expand=True,
         )
-    
+
     def _build_expenses_page(self) -> ft.Column:
         """Страница расходов."""
         return ft.Column(
@@ -169,7 +172,7 @@ class FinanceApp(ft.Column):
             ],
             expand=True,
         )
-    
+
     def _build_calendar_page(self) -> ft.Column:
         """Страница календаря."""
         return ft.Column(
@@ -180,7 +183,7 @@ class FinanceApp(ft.Column):
             ],
             expand=True,
         )
-    
+
     def _build_settings_page(self) -> ft.Column:
         """Страница настроек."""
         return ft.Column(
@@ -193,7 +196,7 @@ class FinanceApp(ft.Column):
         )
 
 
-def create_app(kernel: Optional[Any] = None) -> FinanceApp:
+def create_app(kernel: Any | None = None) -> FinanceApp:
     """Фабричная функция для создания приложения."""
     return FinanceApp(kernel=kernel)
 
@@ -203,7 +206,7 @@ def main(page: ft.Page) -> None:
     page.title = "Финансовый Менеджер"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 0
-    
+
     app = create_app()
     page.add(app)
 

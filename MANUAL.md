@@ -61,54 +61,60 @@ reset_kernel()
 kernel = get_kernel()
 
 # Создание модулей
-db_kernel = create_db_kernel('sqlite:///app.db')
+db_kernel = create_db_kernel("sqlite:///app.db")
 cache_manager = create_cache_manager(max_size=1000, default_ttl=300)
-updater = create_updater(current_version='1.0.0')
+updater = create_updater(current_version="1.0.0")
 
 # Регистрация модулей в ядре
-kernel.register_module('db_kernel', db_kernel)
-kernel.register_module('cache_manager', cache_manager)
-kernel.register_module('updater', updater)
+kernel.register_module("db_kernel", db_kernel)
+kernel.register_module("cache_manager", cache_manager)
+kernel.register_module("updater", updater)
 
 # Инициализация всех модулей
 kernel.initialize()
 
 # === РАБОТА С КЭШЕМ ===
-kernel.cache_set('user_1', {'name': 'John', 'age': 30}, ttl=300)
-user = kernel.cache_get('user_1')
-kernel.cache_delete('user_1')
+kernel.cache_set("user_1", {"name": "John", "age": 30}, ttl=300)
+user = kernel.cache_get("user_1")
+kernel.cache_delete("user_1")
 kernel.cache_clear()
 
 # === РАБОТА С БД ===
 # Выполнение запроса
-result = kernel.request_db('execute_query', 
-    query='SELECT * FROM users WHERE id = :id',
-    params={'id': 1}
+result = kernel.request_db(
+    "execute_query", query="SELECT * FROM users WHERE id = :id", params={"id": 1}
 )
 
 # Транзакция
 operations = [
-    {'type': 'insert', 'query': 'INSERT INTO users (name) VALUES (:name)', 
-     'params': {'name': 'Alice'}},
-    {'type': 'update', 'query': 'UPDATE users SET name = :name WHERE id = :id',
-     'params': {'name': 'Bob', 'id': 1}}
+    {
+        "type": "insert",
+        "query": "INSERT INTO users (name) VALUES (:name)",
+        "params": {"name": "Alice"},
+    },
+    {
+        "type": "update",
+        "query": "UPDATE users SET name = :name WHERE id = :id",
+        "params": {"name": "Bob", "id": 1},
+    },
 ]
-kernel.request_db('execute_transaction', operations=operations)
+kernel.request_db("execute_transaction", operations=operations)
 
 # Миграции
-migration_result = kernel.request_db('run_migrations', version='latest')
+migration_result = kernel.request_db("run_migrations", version="latest")
 
 # Аналитика
-analytics = kernel.request_db('build_analytics', 
-    analytics_type='summary',
-    params={'table': 'users', 'field': 'age'}
+analytics = kernel.request_db(
+    "build_analytics", analytics_type="summary", params={"table": "users", "field": "age"}
 )
 
 # === ПРОВЕРКА ОБНОВЛЕНИЙ ===
 update_info = kernel.check_update()
-if update_info.get('available'):
-    print(f"Доступно обновление: {update_info['current_version']} -> {update_info['latest_version']}")
-    kernel.perform_update('latest')
+if update_info.get("available"):
+    print(
+        f"Доступно обновление: {update_info['current_version']} -> {update_info['latest_version']}"
+    )
+    kernel.perform_update("latest")
 
 # Завершение работы
 kernel.shutdown()
@@ -119,7 +125,7 @@ kernel.shutdown()
 ### Регистрация модулей
 
 ```python
-kernel.register_module('module_name', module_instance)
+kernel.register_module("module_name", module_instance)
 ```
 
 ### Работа с кэшем
@@ -135,22 +141,23 @@ kernel.cache_clear()
 
 ```python
 # Прямой запрос
-kernel.request_db('execute_query', query='SELECT...', params={})
+kernel.request_db("execute_query", query="SELECT...", params={})
 
 # Транзакция
-kernel.request_db('execute_transaction', operations=[...])
+kernel.request_db("execute_transaction", operations=[...])
 
 # Миграции
-kernel.request_db('run_migrations', version='latest')
+kernel.request_db("run_migrations", version="latest")
 
 # Аналитика
-kernel.request_db('build_analytics', analytics_type='summary', params={})
+kernel.request_db("build_analytics", analytics_type="summary", params={})
 
 # Построение запросов
-builder = kernel.request_db('build_query', 
-    table='users',
-    conditions=[{'field': 'id', 'operator': '>', 'value': 10}],
-    fields=['id', 'name']
+builder = kernel.request_db(
+    "build_query",
+    table="users",
+    conditions=[{"field": "id", "operator": ">", "value": 10}],
+    fields=["id", "name"],
 )
 results = builder.execute()
 ```
@@ -159,7 +166,7 @@ results = builder.execute()
 
 ```python
 kernel.check_update()
-kernel.perform_update('latest')  # или конкретную версию
+kernel.perform_update("latest")  # или конкретную версию
 ```
 
 ## DB Kernel возможности
@@ -168,14 +175,14 @@ kernel.perform_update('latest')  # или конкретную версию
 
 ```python
 builder = db_kernel.build_query(
-    table='users',
+    table="users",
     conditions=[
-        {'field': 'age', 'operator': '>=', 'value': 18},
-        {'field': 'active', 'operator': '=', 'value': True}
+        {"field": "age", "operator": ">=", "value": 18},
+        {"field": "active", "operator": "=", "value": True},
     ],
-    fields=['id', 'name', 'email']
+    fields=["id", "name", "email"],
 )
-builder.order_by_field('name', ascending=True)
+builder.order_by_field("name", ascending=True)
 builder.limit_results(10, offset=0)
 results = builder.execute()
 ```
@@ -183,11 +190,7 @@ results = builder.execute()
 ### Условия
 
 ```python
-condition = db_kernel.build_condition(
-    field='status',
-    operator='IN',
-    value=['active', 'pending']
-)
+condition = db_kernel.build_condition(field="status", operator="IN", value=["active", "pending"])
 ```
 
 ### Аналитика
@@ -291,23 +294,24 @@ kernel.shutdown()
 class MyModule:
     def __init__(self):
         self._kernel = None
-    
+
     def set_kernel(self, kernel):
         self._kernel = kernel
-    
+
     def initialize(self):
         pass
-    
+
     def handle_message(self, message):
         # Обработка сообщений от других модулей
         pass
-    
+
     def shutdown(self):
         pass
 
+
 # Регистрация
 my_module = MyModule()
-kernel.register_module('my_module', my_module)
+kernel.register_module("my_module", my_module)
 ```
 
 ### Отправка сообщений между модулями
@@ -316,10 +320,7 @@ kernel.register_module('my_module', my_module)
 from core.kernel import Message
 
 message = Message(
-    source='module_a',
-    target='module_b',
-    action='do_something',
-    payload={'data': 'value'}
+    source="module_a", target="module_b", action="do_something", payload={"data": "value"}
 )
 result = kernel.send_message(message)
 ```

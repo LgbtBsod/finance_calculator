@@ -17,5 +17,19 @@ ignore = ["E501"]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
 
 [tool.coverage.run]
-source = ["api", "calculator", "database", "models", "config", "prod_calendar"]
+source = ["api", "calculator", "database", "models", "config", "prod_calendar", "core", "modules"]
 omit = ["tests/*"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["api", "calculator", "database", "models", "config", "prod_calendar", "core", "modules"]

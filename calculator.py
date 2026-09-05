@@ -88,7 +88,7 @@ class SalaryCalculator:
                 # Пропорциональный метод: 40% аванс, 60% основная выплата
                 advance_ratio = 0.4
                 payout_ratio = 0.6
-        
+
         advance = net * advance_ratio
         payout = net * payout_ratio
 
@@ -118,9 +118,7 @@ class SalaryCalculator:
             advance_cutoff_day=cutoff_day,
         )
 
-    def _working_days_breakdown(
-        self, year: int, month: int
-    ) -> tuple[float, float, float]:
+    def _working_days_breakdown(self, year: int, month: int) -> tuple[float, float, float]:
         """Рабочие дни каждой половины месяца (после вычета дней отпуска).
 
         Возвращает (h1, h2, total) по данным производственного календаря
@@ -180,9 +178,7 @@ class SalaryCalculator:
             d -= timedelta(days=1)
         return d
 
-    def _vacation_working_days(
-        self, year: int, month: int
-    ) -> tuple[float, float]:
+    def _vacation_working_days(self, year: int, month: int) -> tuple[float, float]:
         """Сколько рабочих дней отпуска пришлось на каждую половину месяца."""
         if self._vacs is None or self._calendar_reader is None:
             return 0.0, 0.0
@@ -230,9 +226,7 @@ class SalaryCalculator:
 
     # ── отпускные ────────────────────────────────────────────
 
-    def _distribute_vacations(
-        self, year: int, month: int
-    ) -> tuple[float, float]:
+    def _distribute_vacations(self, year: int, month: int) -> tuple[float, float]:
         """Распределяет отпускные по половинам через VacationReader."""
         if self._vacs is None:
             return 0.0, 0.0
@@ -269,9 +263,7 @@ class BirthdayService:
     def __init__(self, get_setting: Callable[[str], str]) -> None:
         self._get = get_setting
 
-    def trigger_date(
-        self, birth_date: str, ref_year: int
-    ) -> date | None:
+    def trigger_date(self, birth_date: str, ref_year: int) -> date | None:
         """Триггер = ДР в ref_year - 14 дней. Учитывает переход через год."""
         day, month = self._parse_bd(birth_date)
         match day:
@@ -403,9 +395,7 @@ class BirthdayService:
         except (ValueError, IndexError):
             return None, None
 
-    def _check_one(
-        self, bd: dict, today: date, days_ahead: int
-    ) -> BirthdayAlert | None:
+    def _check_one(self, bd: dict, today: date, days_ahead: int) -> BirthdayAlert | None:
         for year in (today.year, today.year + 1):
             trigger = self.trigger_date(bd["birth_date"], year)
             match trigger:
