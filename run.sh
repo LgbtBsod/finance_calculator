@@ -10,7 +10,7 @@ echo ""
 # ============================================
 # Check Python
 # ============================================
-echo "[1/4] Checking Python..."
+echo "[1/6] Checking Python..."
 if ! command -v python3 &> /dev/null; then
     echo "[ERROR] Python3 is not installed or not in PATH!"
     echo "Please install Python 3.10+: https://www.python.org/downloads/"
@@ -21,17 +21,36 @@ python3 --version
 echo ""
 
 # ============================================
-# Install Python dependencies
+# Create virtual environment if needed
 # ============================================
-echo "[2/4] Installing Python dependencies..."
-pip3 install -r requirements.txt
-echo "[OK] Python dependencies installed"
+echo "[2/6] Setting up Python Virtual Environment..."
+if [ ! -d "venv" ]; then
+    echo "Creating venv folder..."
+    python3 -m venv venv
+fi
+echo "Activating venv..."
+source venv/bin/activate
+echo "[OK] venv activated"
+echo ""
+
+# ============================================
+# Run bootstrap script to update dependencies
+# ============================================
+echo "[3/6] Running bootstrap script..."
+python scripts/bootstrap.py || echo "[WARN] Bootstrap script failed, continuing anyway..."
+echo ""
+
+# ============================================
+# Check for updates from Git
+# ============================================
+echo "[4/6] Checking for updates..."
+python scripts/check_update.py || echo "[WARN] Update check failed, continuing anyway..."
 echo ""
 
 # ============================================
 # Build frontend (only if not already built)
 # ============================================
-echo "[3/4] Checking frontend build..."
+echo "[5/6] Checking frontend build..."
 if [ -f "frontend/dist/index.html" ]; then
     echo "[OK] frontend/dist already built - skipping."
     echo "     Delete frontend/dist to force a rebuild after pulling changes."
@@ -50,7 +69,7 @@ echo ""
 # ============================================
 # Start the application
 # ============================================
-echo "[4/4] Starting application..."
+echo "[6/6] Starting application..."
 echo "========================================================"
 echo "  main.py picks a free port automatically and opens"
 echo "  your browser once the server is ready."
