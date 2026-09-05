@@ -1,31 +1,8 @@
 ```
-# Database files
-*.db
-
-# Test cache and temporary test files
-.pytest_cache/
-__pycache__/
+# Python compiled files
 *.pyc
-*.pyo
-*.pyd
-
-# Environment files
-.env
-.env.local
-*.env.*
-
-# Coverage reports
-.coverage
-htmlcov/
-coverage/
-
-# Build/dist directories
-build/
-dist/
-*.egg-info/
-
-# Dependencies
-.venv/
-venv/
 __pycache__/
+
+# Database file
+budget.db
 ```

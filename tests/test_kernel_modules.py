@@ -9,9 +9,11 @@ from unittest.mock import Mock
 
 import pytest
 
+# Добавляем корень проекта в путь для импорта модулей
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.kernel import Message, get_kernel, reset_kernel
+# Импортируем после изменения sys.path
+from core.kernel import Message, get_kernel, reset_kernel  # noqa: E402
 
 
 class TestKernelModuleCommunication:

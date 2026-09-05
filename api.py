@@ -977,6 +977,24 @@ def get_debts(db: DatabaseManager = Depends(get_db)):
     return [_debt_to_response(d) for d in db.get_debts()]
 
 
+@app.get("/api/debts/{debt_id}", response_model=DebtResponse)
+def get_debt(
+    debt_id: str,
+    db: DatabaseManager = Depends(get_db),
+):
+    """Получить конкретный долг."""
+    try:
+        did = int(debt_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail="Debt not found") from e
+    
+    debts = db.get_debts()
+    debt = next((d for d in debts if d["id"] == did), None)
+    if debt is None:
+        raise HTTPException(status_code=404, detail="Debt not found")
+    return _debt_to_response(debt)
+
+
 @app.post("/api/debts", response_model=DebtResponse, status_code=201)
 def create_debt(
     data: DebtCreate,
