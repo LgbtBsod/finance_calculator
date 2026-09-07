@@ -1,8 +1,29 @@
-```
-# Python compiled files
+# Python
 *.pyc
+*.pyo
 __pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Database file
+# Виртуальные окружения
+venv/
+.venv/
+
+# Пользовательские данные и рантайм (лежат рядом с приложением, не в репозитории)
 budget.db
-```
+budget.db-wal
+budget.db-shm
+gui_prefs.json
+app.lock
+logs/
+backups/
+.update_backup/
+.upload/
+
+# Сборка
+build/
+dist/
+*.spec

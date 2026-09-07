@@ -11,6 +11,7 @@ import pytest
 from calculator import BirthdayService, SalaryCalculator
 from database import DatabaseManager
 from prod_calendar import CalendarService
+from services import FinanceService
 
 
 @pytest.fixture
@@ -19,6 +20,22 @@ def db() -> DatabaseManager:
     manager = DatabaseManager(":memory:")
     yield manager
     manager.close()
+
+
+@pytest.fixture
+def service() -> FinanceService:
+    """Фасад бизнес-логики поверх изолированной in-memory БД."""
+    svc = FinanceService(":memory:")
+    yield svc
+    svc.close()
+
+
+@pytest.fixture
+def file_service(tmp_path) -> FinanceService:
+    """FinanceService поверх временного файла БД (нужен для backup)."""
+    svc = FinanceService(str(tmp_path / "budget.db"))
+    yield svc
+    svc.close()
 
 
 @pytest.fixture

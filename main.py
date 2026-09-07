@@ -1,125 +1,184 @@
-"""main.py — Точка входа для standalone-запуска (в т.ч. собранного PyInstaller exe).
+"""Finance Calculator — точка входа.
 
-Отличия от `uvicorn api:app`:
-  - БД всегда рядом с исполняемым файлом (а не во временной папке
-    распаковки PyInstaller и не в текущей рабочей директории) — данные
-    переживают перезапуск и не зависят от того, откуда запущен exe.
-  - Автоматически открывает браузер после старта сервера — так же, как
-    делал run.bat, только без обёртки в bat-скрипт.
-
-Обычная разработка (`python -m uvicorn api:app --reload`) продолжает
-работать как прежде — этот файл её не заменяет, а дополняет.
+Запускает Flet-GUI (локальный web-сервер, открывает вкладку браузера). В
+собранной PyInstaller-версии все данные / логи лежат рядом с .exe, чтобы
+пережить обновление (см. ``paths``).
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
-import socket
 import sys
-import threading
-import webbrowser
+import time
 from pathlib import Path
-from typing import IO
-
-HOST = "127.0.0.1"
-# Порт 8000 занят чуть ли не чаще любого другого (Django, другие dev-серверы
-# и т.п.) — начинаем с менее распространённого, а если и он занят, ОС сама
-# выдаёт свободный (см. _find_free_port).
-PREFERRED_PORT = 8420
 
 
-def _app_base_dir() -> Path:
-    """Папка рядом с exe (frozen) или рядом с этим файлом (обычный запуск)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).parent
-
-
-def _configure_db_path() -> None:
-    """БД — рядом с exe/скриптом, если пользователь не указал FINANCE_DB_PATH явно."""
-    os.environ.setdefault("FINANCE_DB_PATH", str(_app_base_dir() / "budget.db"))
-
-
-def _acquire_single_instance_lock(lock_path: Path) -> IO[str] | None:
-    """Захватывает эксклюзивную ОС-блокировку lock-файла, чтобы второй запущенный
-    экземпляр не писал в ту же budget.db одновременно с первым.
-
-    Блокировка именно на уровне ОС, а не проверка PID из lock-файла — та была бы
-    ненадёжной: PID освободившегося процесса может быть переиспользован системой
-    для совсем другой программы. ОС же снимает блокировку сама при завершении
-    процесса-владельца, в том числе аварийном, так что отдельная логика
-    "жив ли процесс" не нужна.
-
-    Возвращает открытый файловый объект при успехе — его нужно сохранить в
-    переменной на весь жизненный цикл процесса (сборка мусора закрыла бы файл
-    и тем самым сняла блокировку раньше времени). Возвращает None, если файл
-    уже заблокирован другим процессом.
-    """
-    # `with open(...)` тут не годится: файл обязан остаться открытым ПОСЛЕ
-    # выхода из этой функции (иначе ОС снимет блокировку немедленно).
-    lock_file = open(lock_path, "a")  # noqa: SIM115
-    try:
-        if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        lock_file.close()
-        return None
-    return lock_file
-
-
-def _find_free_port(preferred: int) -> int:
-    """Предпочитаемый порт, если свободен; иначе — любой свободный от ОС."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+def _ensure_std_streams() -> None:
+    """PyInstaller ``--windowed`` сборка не имеет консоли — ``sys.stdout`` /
+    ``sys.stderr`` равны ``None`` и первый ``print()`` (наш, uvicorn'а, Flet'а)
+    уронил бы приложение. Перенаправляем в лог-файл рядом с exe, иначе в
+    /dev/null. Должно выполниться до любого вывода."""
+    if not getattr(sys, "frozen", False):
+        return
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is not None:
+            continue
+        stream = None
         try:
-            s.bind((HOST, preferred))
-            return preferred
+            log_path = Path(sys.executable).parent / "logs" / "console.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            stream = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115
         except OSError:
-            pass
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, 0))  # 0 -> ОС назначает свободный порт
-        return s.getsockname()[1]
+            try:
+                stream = open(os.devnull, "w")  # noqa: SIM115
+            except OSError:
+                stream = None
+        if stream is not None:
+            setattr(sys, name, stream)
+            setattr(sys, f"__{name}__", stream)
 
 
-def _open_browser_when_ready(port: int) -> None:
-    import time
-    import urllib.request
+_ensure_std_streams()
 
-    url = f"http://{HOST}:{port}"
-    for _ in range(50):  # до ~10 секунд
-        try:
-            urllib.request.urlopen(f"{url}/api/health", timeout=0.5)
-            break
-        except Exception:
-            time.sleep(0.2)
-    webbrowser.open(url)
+# Bootstrap: положить корень (src/ бандла или папку этого файла) в sys.path.
+_here = Path(getattr(sys, "_MEIPASS", None) or Path(__file__).resolve().parent)
+for _p in (_here, Path(__file__).resolve().parent):
+    if _p.is_dir() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+import paths  # noqa: E402
+
+_ATTEMPTS_STAMP = "update_attempts"
+
+
+def _digest(path: Path) -> str:
+    import hashlib
+
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def _finish_pending_update(log) -> bool:
+    """Файл ``<exe>.updated`` рядом с нами означает, что self-update скачал
+    новый бинарник, но подмена могла не завершиться. Если staged-файл
+    байт-в-байт совпадает с запущенным — подмена уже прошла, чистим мусор.
+    Иначе отдаём свежему хелперу и выходим. Сдаёмся после 3 попыток."""
+    exe = paths.exe_path or Path(sys.executable)
+    staged = exe.with_name(exe.name + ".updated")
+    stamp = paths.logs_dir / _ATTEMPTS_STAMP
+
+    if not staged.is_file() or staged.stat().st_size < 1_000_000:
+        stamp.unlink(missing_ok=True)
+        return False
+
+    try:
+        if _digest(staged) == _digest(exe):
+            log.info("Staged update is already the running version — cleaning up.")
+            staged.unlink(missing_ok=True)
+            stamp.unlink(missing_ok=True)
+            return False
+    except OSError:
+        pass
+
+    try:
+        attempts = int(stamp.read_text(encoding="utf-8").strip() or "0")
+    except (OSError, ValueError):
+        attempts = 0
+    if attempts >= 3:
+        log.error("Update swap failed %d times — running the current version.", attempts)
+        staged.unlink(missing_ok=True)
+        stamp.unlink(missing_ok=True)
+        return False
+
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(str(attempts + 1), encoding="utf-8")
+    except OSError:
+        pass
+
+    log.warning("Staged update pending — handing to a fresh helper (attempt %d/3).", attempts + 1)
+    try:
+        from updater import AutoUpdater
+
+        AutoUpdater()._relaunch_after_update()
+        return True
+    except Exception as e:
+        log.error("Could not finish the pending update: %s", e)
+        return False
+
+
+def _cleanup_update_leftovers(log) -> None:
+    exe = paths.exe_path or Path(sys.executable)
+    for path in (exe.with_name(exe.name + ".old"),):
+        for attempt in range(3):
+            try:
+                if path.exists():
+                    path.unlink()
+                    log.info("Removed update leftover: %s", path.name)
+                break
+            except OSError:
+                time.sleep(0.3 * (attempt + 1))
+
+
+def _get_logger():
+    import logging
+
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(paths.logs_dir / "app.log", encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+    )
+    return logging.getLogger("main")
 
 
 def main() -> None:
-    _configure_db_path()
+    log = _get_logger()
+    log.info(
+        "App dir: %s | frozen: %s | python: %s",
+        paths.app_dir, paths.frozen, sys.version.split()[0],
+    )
+    log.info("Args: %s", sys.argv)
 
-    # Держим файловый объект живым до конца main() — до сюда доходит только
-    # после блокирующего uvicorn.run(), т.е. на весь жизненный цикл процесса.
-    lock_file = _acquire_single_instance_lock(_app_base_dir() / "app.lock")
-    if lock_file is None:
-        print("Приложение уже запущено — второй экземпляр не может открыть ту же базу данных.")
+    args = sys.argv[1:]
+    if paths.frozen:
+        if _finish_pending_update(log):
+            log.info("Pending update handed to the relaunch helper; exiting.")
+            return
+        _cleanup_update_leftovers(log)
+        paths.sync_version_file()
+        log.info("Running version: %s", paths.read_version())
+
+    if paths.frozen and "--force-update" in args:
+        try:
+            from updater import check_updates
+
+            if check_updates(auto=True, force=True):
+                log.info("Update staged; exiting for relaunch.")
+                return
+        except Exception as e:
+            log.warning("Forced update failed, continuing: %s", e)
+
+    port = 8420
+    if "--port" in args:
+        with contextlib.suppress(ValueError, IndexError):
+            port = int(args[args.index("--port") + 1])
+
+    log.info("Starting Flet GUI on port %d", port)
+    try:
+        from gui.app import run_app
+
+        run_app(port=port)
+    except Exception as e:
+        log.critical("Fatal error starting GUI: %s", e, exc_info=True)
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
-
-    port = _find_free_port(PREFERRED_PORT)
-
-    # Импорт после настройки FINANCE_DB_PATH — AppSettings читает env при создании.
-    import uvicorn
-
-    from api import app
-
-    print(f"Finance Calculator: http://{HOST}:{port}")
-    threading.Thread(target=_open_browser_when_ready, args=(port,), daemon=True).start()
-    uvicorn.run(app, host=HOST, port=port, log_level="info")
 
 
 if __name__ == "__main__":
