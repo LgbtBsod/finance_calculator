@@ -170,9 +170,12 @@ def main() -> None:
 
     log.info("Starting Flet GUI on port %d", port)
     try:
+        from core.bootstrap import build_kernel
         from gui.app import run_app
 
-        run_app(port=port)
+        kernel = build_kernel(str(paths.db_path))
+        log.info("Ядро собрано: модули %s", ", ".join(kernel._order))
+        run_app(kernel=kernel, port=port)
     except Exception as e:
         log.critical("Fatal error starting GUI: %s", e, exc_info=True)
         import traceback

@@ -1,70 +1,118 @@
 # Архитектура
 
-## Обзор
+## Модульная архитектура через ядро
+
+Приложение построено на **ядре (Kernel) и модулях**. Модули общаются
+**только через ядро** — не импортируют пакеты друг друга и не держат ссылок
+друг на друга.
 
 ```
-                    ┌──────────────────────────┐
-                    │        gui/ (Flet)        │
-                    │  app.py  ·  views/*.py    │
-                    └────────────┬─────────────┘
-                                 │ только через фасад
-                    ┌────────────▼─────────────┐
-                    │   services.FinanceService │
-                    └──┬───────────┬────────────┘
-        ┌──────────────┘           └──────────────┐
-┌───────▼────────┐  ┌──────────────────┐  ┌───────▼────────┐
-│  database.py   │  │  calculator.py   │  │ prod_calendar  │
-│  (SQLite CRUD) │  │  (бизнес-логика) │  │  (календарь РФ)│
-└────────────────┘  └──────────────────┘  └────────────────┘
+                     ┌──────────────────────────────┐
+                     │        gui/ (Flet)           │
+                     │   app.py · views/*.py        │
+                     └──────────────┬───────────────┘
+                                    │ FinanceService (фасад, KernelView 'gui')
+                     ┌──────────────▼───────────────┐
+                     │            Kernel            │
+                     │  request(target,action,**p)  │   emit / subscribe
+                     └──┬───┬────┬────┬────┬────┬────┘
+              ┌─────────┘   │    │    │    │    │
+        ┌─────▼────┐ ┌──────▼┐ ┌─▼───┐ ┌──▼──┐ ┌▼────────┐ ┌─────────┐ ┌────────┐
+        │   db     │ │ cache │ │ cal │ │calc │ │birthdays│ │ finance │ │updater │
+        │(SQLite)  │ │(TTL)  │ │endar│ │ulat.│ │         │ │(агрег.) │ │        │
+        └────┬─────┘ └───────┘ └──┬──┘ └──┬──┘ └────┬────┘ └────┬────┘ └───┬────┘
+        database.py         prod_calendar  calculator.py             updater.py
+        (легаси, нетронутая — kernel-agnostic)
 ```
 
-Слои снизу вверх:
+### Правила изоляции (проверяются `tests/test_architecture.py` — AST-анализ)
+
+- ни один `modules/<X>` не импортирует `modules/<Y>`;
+- `modules/<X>` импортирует только: свой пакет, stdlib/third-party, `core.*`,
+  `models`, `config`, `paths`, и **свой** легаси-модуль (`modules/db` → `database`,
+  `modules/calendar` → `prod_calendar`, `modules/{calculator,birthdays}` → `calculator`,
+  `modules/updater` → `updater`);
+- `services.py` (фасад) импортирует только `core.*` + stdlib;
+- легаси `database.py` / `calculator.py` / `prod_calendar.py` / `models.py` /
+  `config.py` не импортируют `core` / `modules` — остаются kernel-free, их
+  прямые юнит-тесты не тронуты;
+- `kernel.get_module()` / `kernel._modules` — только в `tests/` и `core/`.
+
+### Ядро (`core/`)
+
+| Файл | Что |
+|------|-----|
+| `kernel.py` | `Kernel` (явный экземпляр, НЕ singleton) + `KernelView` — узкий фасад, который получает модуль: `request` / `emit` / `subscribe` / `log`, **без `get_module`** |
+| `module.py` | `Module` — база: `name`, `requires`, таблица `_actions`, `handle()` |
+| `messages.py` | `Message` / `Event` (frozen dataclass) |
+| `errors.py` | `KernelError`, `UnknownActionError`, `PayloadError`, `UserFacingError`/`ValidationError` |
+| `_validate.py` | проверка «плоских данных»: в payload запроса и данных события — только `str/int/float/bool/None/date/Decimal/list/dict/frozen dataclass`. `callable` и объекты → `PayloadError` (механически запрещает утечку ссылок между модулями) |
+| `bootstrap.py` | `build_kernel(db_path)` — единый источник порядка регистрации |
+| `projection.py` | чистый прогноз погашения долга |
+| `validation.py` | валидация ввода (бросает `ValidationError`) |
+
+### Два канала
+
+- **`request(target, action, **payload) -> Any`** — синхронный вызов; ядро
+  строит `Message`, ставит `source` = имя вызвавшего модуля, зовёт
+  `target.handle(action, payload)`. Неизвестный модуль/action → `UnknownModuleError`/
+  `UnknownActionError`. Исключение хендлера → `KernelError from e`; **подклассы
+  `UserFacingError` пробрасываются нетронутыми** (снекбар GUI).
+- **`emit(event, **data)` / `subscribe(event, handler)`** — fire-and-forget.
+  События **копятся в очередь** и диспатчатся **после раскрутки верхнеуровневого
+  `request()`** — без реентрантности и без `emit` при открытой транзакции БД.
+  `db` шлёт `db:changed`(entity=…) после записей; `cache` подписан и чистит
+  затронутые неймспейсы.
+
+### Производительность
+
+- `calculator` берёт **снапшот настроек** одним `db:get_settings_bundle` (а не
+  ~10 вызовов `get_setting`);
+- шим календаря (`modules/calculator/_shims.py`) при первом `classify_day`
+  подтягивает классификацию всего года батчем (`calendar:classify_range`);
+- `finance` кэширует `balance` / `analytics_*` в модуле `cache`, инвалидация по
+  `db:changed`.
+
+## Слои логики (легаси, не тронуты)
 
 1. **`config.py` / `models.py`** — константы, дефолты, иммутабельные модели,
-   Protocol'ы для DI. Нулевая логика.
+   Enum'ы, Protocol'ы для DI.
 2. **`database.py`** — единственный модуль, знающий про SQL. Схема, аддитивные
-   миграции, CRUD. Возвращает `TypedDict`.
-3. **`calculator.py`** — чистая бизнес-логика (зарплата, баланс, триггеры дней
-   рождения). Не знает про БД: получает данные через callable / Protocol.
-4. **`prod_calendar.py`** — производственный календарь РФ поверх библиотеки
-   `work-calendar` (данные consultant.ru, 2021–2027) + декоратор ручных
-   поправок + опциональный парсер PDF.
-5. **`services.py`** — фасад `FinanceService`. Собирает `DatabaseManager` +
-   `SalaryCalculator` + `CalendarService` + `BirthdayService`, добавляет
-   агрегации (баланс, аналитика, тренд) и валидацию ввода. **GUI обращается
-   только сюда**, никогда напрямую к слоям ниже. Все методы возвращают
-   `dict` в `camelCase`.
-6. **`gui/`** — Flet. `app.py` держит навигацию, тему и хост контента;
-   `views/*.py` — экраны. Каждое вью читает свежие данные при каждом
-   `render()`; после мутации вызывает `app.rerender()`.
+   миграции, CRUD → `TypedDict`. (Одно аддитивное изменение: `get_settings_bundle`.)
+3. **`calculator.py`** — чистая бизнес-логика (зарплата, баланс, триггеры ДР).
+4. **`prod_calendar.py`** — производственный календарь РФ (`work-calendar` +
+   декоратор ручных поправок + опциональный парсер PDF).
 
 ## Точка входа и пути
 
-`paths.py` — единственное место, резолвящее «где что лежит». Для собранной
-PyInstaller-версии всё (БД, логи, `version.txt`) лежит рядом с `.exe`, чтобы
-пережить обновление; из исходников — в корне репозитория.
+`paths.py` — единственный резолвер путей. Frozen: всё рядом с `.exe`. Из
+исходников — корень репозитория.
 
-`main.py` настраивает логирование, при frozen-запуске завершает отложенное
-обновление (`<exe>.updated`), синхронизирует `version.txt` и запускает
-`gui.app.run_app`.
+`main.py` → настраивает логи, при frozen завершает отложенное обновление,
+`build_kernel()` → `run_app(kernel)`.
+
+`scripts/launch.py` — стартовый скрипт (обновление pip/зависимостей, проверка
+обновлений кода, запуск `main.py`). `run.bat` / `run.sh` только вызывают его.
 
 ## Обновления
 
-`updater.AutoUpdater` — self-updater через GitHub Releases:
-
-- discovery через `github.com/…/releases.atom` (без лимита API), API — фолбэк;
-- скачивание с прогрессом, проверка размера/целостности;
-- бэкап `budget.db` + критичных файлов перед установкой, откат при ошибке;
-- frozen: подмена бинарника на месте (`.exe` → `.exe.old`, staged → `.exe`) и
-  перезапуск через detached-процесс; из исходников: копирование файлов
-  (пропуская `venv/`, `.git/`, `budget.db`, `logs/`, …).
-
-GUI-часть — `gui/update_ui.py`: тихая проверка при старте, диалог перед
-скачиванием, никакой блокировки при отсутствии сети.
+- `modules/updater` — action `check` (без сети-колбэков, rate-limit внутри),
+  `current_version`;
+- саму загрузку+установку бинарника с живым прогресс-колбэком GUI зовёт у
+  `updater.AutoUpdater` напрямую (`gui/update_ui.py`) — это файловая/процессная
+  операция, не доменная;
+- `updater.py`: discovery через `releases.atom` (без лимита API), бэкап
+  `budget.db` перед установкой, откат при ошибке, подмена `.exe` на месте +
+  detached-перезапуск.
 
 ## Тесты
 
-- `test_calculator.py`, `test_database.py`, `test_prod_calendar.py` — слои логики;
-- `test_services.py`, `test_integration_e2e.py` — фасад и сквозные сценарии;
-- `test_updater.py` — self-updater (сеть замокана);
-- `test_gui.py` — форматтеры, prefs, тема, «каждое вью строится без исключений».
+| Файл | Что |
+|------|-----|
+| `test_calculator/database/prod_calendar.py` | слои логики (без ядра) |
+| `test_kernel.py` | маршрутизация, жизненный цикл, события, валидация payload, изоляция KernelView |
+| `test_modules.py` | каждый модуль через ядро |
+| `test_architecture.py` | статическая гарантия изоляции (AST) |
+| `test_services.py` / `test_integration_e2e.py` | фасад и сквозные сценарии через ядро |
+| `test_updater.py` | self-updater (сеть замокана) |
+| `test_gui.py` | форматтеры, prefs, тема, «каждое вью строится без исключений» |

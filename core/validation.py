@@ -1,0 +1,32 @@
+"""Валидация пользовательского ввода. Бросает ValidationError (UserFacingError) —
+ядро пробрасывает её нетронутой, GUI показывает текст в снекбаре.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+from core.errors import ValidationError
+
+__all__ = ["validate_iso_date", "validate_birth_date"]
+
+
+def validate_iso_date(value: str, field_name: str) -> None:
+    try:
+        date.fromisoformat(value)
+    except (ValueError, TypeError) as e:
+        raise ValidationError(
+            f"{field_name}: неверный формат даты. Используйте ГГГГ-ММ-ДД"
+        ) from e
+
+
+def validate_birth_date(value: str) -> None:
+    """ДД.ММ.ГГГГ, реальная дата."""
+    try:
+        parts = str(value).strip().split(".")
+        if len(parts) != 3:
+            raise ValueError
+        day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+        date(year, month, day)
+    except (ValueError, IndexError) as e:
+        raise ValidationError("Неверный формат даты. Используйте ДД.ММ.ГГГГ") from e

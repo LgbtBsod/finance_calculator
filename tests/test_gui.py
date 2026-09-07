@@ -7,6 +7,7 @@ from datetime import date
 
 import pytest
 
+from core.bootstrap import build_kernel
 from gui import theme
 from gui.format import (
     build_birth_date_for_api,
@@ -91,7 +92,7 @@ class _FakeApp:
 
 @pytest.fixture
 def fake_app(tmp_path):
-    svc = FinanceService(":memory:")
+    svc = FinanceService(build_kernel(":memory:"))
     g = svc.create_expense_group(name="Food", color="#ff0000", monthly_limit=5000)
     svc.create_expense(name="x", amount=1500, half=1, month=date.today().month,
                        year=date.today().year, group_id=g["id"])

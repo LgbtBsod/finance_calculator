@@ -148,7 +148,7 @@ class SettingsView(View):
     # ── updates ───────────────────────────────────────────────
 
     def _updates_card(self) -> ft.Container:
-        from updater import get_current_version
+        current = self.app.service.k.request("updater", "current_version")
 
         auto = ft.Switch(
             label="Проверять обновления при запуске",
@@ -163,7 +163,7 @@ class SettingsView(View):
             update_ui.check_now(self.app)
 
         return card(
-            hint(f"Текущая версия: {get_current_version()}"),
+            hint(f"Текущая версия: {current}"),
             auto,
             ft.FilledButton("Проверить обновления", icon=ft.Icons.SYSTEM_UPDATE, on_click=check),
             hint("Автоматическое обновление работает только в собранной версии (.exe)."),

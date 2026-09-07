@@ -258,6 +258,15 @@ class DatabaseManager:
             r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
             return r["value"] if r else ""
 
+    def get_settings_bundle(self) -> dict[str, str]:
+        """Все настройки одним запросом — снапшот для расчётчиков, чтобы не
+        дёргать get_setting по ключу десятки раз за один balance()."""
+        with self._transaction() as c:
+            return {
+                row["key"]: row["value"]
+                for row in c.execute("SELECT key, value FROM settings").fetchall()
+            }
+
     def set_setting(self, key: str, value: str) -> None:
         with self._transaction() as c:
             c.execute(

@@ -38,8 +38,8 @@ class FinanceApp:
     """Слой данных (service + prefs) общий для всех сессий браузера;
     всё остальное (page, вью) — на сессию."""
 
-    def __init__(self, service: FinanceService | None = None, prefs: Prefs | None = None):
-        self.service = service or _default_service()
+    def __init__(self, service: FinanceService, prefs: Prefs | None = None):
+        self.service = service
         self.prefs = prefs or _default_prefs()
         self.page: ft.Page | None = None
         self.current_view = "balance"
@@ -162,8 +162,11 @@ class FinanceApp:
         )
 
 
-def _default_service() -> FinanceService:
-    return FinanceService()
+def _default_kernel():
+    from core.bootstrap import build_kernel
+    from paths import db_path
+
+    return build_kernel(str(db_path))
 
 
 def _default_prefs() -> Prefs:
@@ -172,14 +175,20 @@ def _default_prefs() -> Prefs:
     return Prefs(app_dir / "gui_prefs.json")
 
 
-def run_app(service: FinanceService | None = None, port: int = 8420) -> None:
-    """Точка входа Flet-приложения (локальный web-сервер + вкладка браузера)."""
+def run_app(kernel=None, port: int = 8420) -> None:
+    """Точка входа Flet-приложения (локальный web-сервер + вкладка браузера).
+
+    ``kernel`` — собранное ядро (из main.py); если не передано, строится здесь.
+    """
+    from datetime import date
+
     from .single_instance import resolve_port
 
-    service = service or _default_service()
+    kernel = kernel or _default_kernel()
+    service = FinanceService(kernel)
     prefs = _default_prefs()
     with contextlib.suppress(Exception):
-        service.ensure_calendar_year(__import__("datetime").date.today().year)
+        service.ensure_calendar_year(date.today().year)
     port = resolve_port(port)
 
     def session_main(page: ft.Page) -> None:

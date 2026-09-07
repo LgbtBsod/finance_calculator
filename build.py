@@ -100,6 +100,8 @@ def main() -> None:
         "--collect-all", "flet_web",
         "--collect-all", "certifi",
         "--collect-submodules", "gui",
+        "--collect-submodules", "core",
+        "--collect-submodules", "modules",
         "--collect-data", "work_calendar",
         "--exclude-module", "flet_desktop",
         "--exclude-module", "tkinter",

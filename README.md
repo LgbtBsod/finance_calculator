@@ -54,17 +54,21 @@ python build.py --clean
 
 | Путь | Назначение |
 |------|-----------|
-| `main.py` | Точка входа: логи, завершение отложенного обновления, запуск GUI |
+| `main.py` | Точка входа: логи, завершение отложенного обновления, сборка ядра, запуск GUI |
+| `scripts/launch.py` | Стартовый скрипт: pip/зависимости → проверка обновлений → `main.py` |
 | `paths.py` | Единственный резолвер путей (frozen vs исходники) |
-| `config.py` | Настройки-константы и дефолты (pydantic-settings) |
-| `models.py` | Иммутабельные модели, Enum'ы, Protocol'ы, TypedDict'ы |
-| `database.py` | SQLite: схема, миграции, CRUD |
-| `calculator.py` | Чистая бизнес-логика: зарплата, баланс, дни рождения |
-| `prod_calendar.py` | Производственный календарь РФ (`work-calendar` + PDF-поправки) |
-| `services.py` | Фасад `FinanceService` — единственная точка входа GUI к логике и БД |
+| `core/` | **Ядро**: `kernel.py` (Kernel + KernelView), `module.py`, `bootstrap.py`, `errors.py`, `projection.py` |
+| `modules/` | **Модули**: `db`, `cache`, `calendar`, `calculator`, `birthdays`, `finance`, `updater` — общаются только через ядро |
+| `config.py` / `models.py` | Настройки-константы, иммутабельные модели, Enum'ы, Protocol'ы (легаси, kernel-free) |
+| `database.py` | SQLite: схема, миграции, CRUD (легаси; обёрнута `modules/db`) |
+| `calculator.py` | Бизнес-логика: зарплата, баланс, дни рождения (легаси; обёрнута `modules/{calculator,birthdays}`) |
+| `prod_calendar.py` | Производственный календарь РФ (легаси; обёрнута `modules/calendar`) |
+| `services.py` | Фасад `FinanceService` — тонкая точка входа GUI поверх ядра |
 | `updater.py` | Self-updater через GitHub Releases |
 | `gui/` | Flet-интерфейс: `app.py` (навигация/тема) + `views/` (экраны) |
-| `tests/` | pytest |
+| `tests/` | pytest (в т.ч. `test_architecture.py` — статическая проверка изоляции модулей) |
+
+Подробнее — [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 🧪 Разработка
 
