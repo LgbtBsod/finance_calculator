@@ -35,7 +35,7 @@ class VacationsView(View):
                                   on_click=lambda e: self._open_form())
 
         if not vacations:
-            body: ft.Control = empty_state("🏖️ Нет отпускных выплат")
+            body: ft.Control = empty_state("Нет отпускных выплат")
         else:
             cards = []
             for v in vacations:

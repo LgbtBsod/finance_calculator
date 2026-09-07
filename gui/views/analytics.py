@@ -36,7 +36,7 @@ class AnalyticsView(View):
         )
 
         total_card = card(
-            ft.Text("💰 Общие расходы за период", size=13, color=COLORS["text_secondary"]),
+            ft.Text("Общие расходы за период", size=13, color=COLORS["text_secondary"]),
             money_text(summary["total"], size=28),
             hint(f"{summary['count']} "
                  f"{pluralize_ru(summary['count'], 'запись', 'записи', 'записей')}"),
@@ -48,7 +48,7 @@ class AnalyticsView(View):
 
         blocks.append(section_title("Расходы по категориям"))
         if not summary["categories"]:
-            blocks.append(card(empty_state("📊 Нет данных для отображения")))
+            blocks.append(card(empty_state("Нет данных для отображения")))
         else:
             blocks.append(self._categories(summary["categories"], summary["total"]))
         return blocks
@@ -91,7 +91,7 @@ class AnalyticsView(View):
                         [
                             ft.Container(width=12, height=12, bgcolor=c["color"], border_radius=999),
                             ft.Text(c["name"], size=13, color=COLORS["text"]),
-                            *([ft.Text("⚠️ превышен лимит", size=11, color=COLORS["danger"])]
+                            *([ft.Text("превышен лимит", size=11, color=COLORS["danger"])]
                               if over else []),
                         ],
                         spacing=8,

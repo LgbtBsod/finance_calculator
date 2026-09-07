@@ -53,7 +53,7 @@ class BalanceView(View):
             blocks.append(
                 card(
                     ft.Text(
-                        f"📐 Как посчитано (день отсечения — {b.get('advanceCutoffDay')})",
+                        f"Как посчитано (день отсечения — {b.get('advanceCutoffDay')})",
                         size=12, weight=ft.FontWeight.W_600, color=COLORS["text"],
                     ),
                     hint(
@@ -115,14 +115,14 @@ def _half_card(
         money_text(to_pay, size=20),
     ]
     if payout_date:
-        text = f"📅 {format_date_long_ru(payout_date)}"
+        text = f"{format_date_long_ru(payout_date)}"
         if nominal and nominal != payout_date:
             text += f"  (перенесено с {format_date_long_ru(nominal)})"
         lines.append(hint(text))
     lines.append(kv_row("Расходы", format_currency(expenses)))
     lines.append(
         ft.Text(
-            ("⚠️ Дефицит " if deficit else "Остаток ") + format_currency(abs(balance)),
+            ("Дефицит " if deficit else "Остаток ") + format_currency(abs(balance)),
             size=15, weight=ft.FontWeight.BOLD,
             color=COLORS["danger"] if deficit else COLORS["success"],
         )

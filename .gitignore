@@ -16,6 +16,8 @@ venv/
 budget.db
 budget.db-wal
 budget.db-shm
+budget.db.bak*
+*.bak-*
 gui_prefs.json
 app.lock
 logs/

@@ -80,7 +80,7 @@ class SettingsView(View):
                             color=COLORS["text"]),
                     ft.Row([payout1, payout2], spacing=10),
                     move_weekend,
-                    ft.FilledButton("💾 Сохранить настройки", on_click=save),
+                    ft.FilledButton("Сохранить настройки", on_click=save),
                 ],
                 spacing=12, tight=True,
             )
@@ -125,7 +125,7 @@ class SettingsView(View):
                 "Все расходы, долги, дни рождения и отпускные хранятся в одном файле на этом "
                 "компьютере. Сделайте копию и держите её отдельно (облако, флешка)."
             ),
-            ft.FilledButton("⬇️ Сохранить резервную копию", on_click=do_backup),
+            ft.FilledButton("Сохранить резервную копию", on_click=do_backup),
             status,
         )
 

@@ -41,7 +41,7 @@ class BirthdaysView(View):
                                   on_click=lambda e: self._open_form(None))
 
         if not birthdays:
-            list_body: ft.Control = empty_state("🎂 Нет добавленных дней рождения")
+            list_body: ft.Control = empty_state("Нет добавленных дней рождения")
         else:
             cards = []
             for b in birthdays:
@@ -57,18 +57,18 @@ class BirthdaysView(View):
                                         tooltip="Удалить", color=COLORS["danger"]),
                         ],
                     ),
-                    hint(f"🎂 {format_birth_date_ru(b['birthDate'])}"),
+                    hint(f"{format_birth_date_ru(b['birthDate'])}"),
                     money_text(b["giftAmount"], size=17),
                 )
                 cards.append(c)
             list_body = card_grid(cards)
 
-        reminders: list[ft.Control] = [section_title_small("🔔 Ближайшие напоминания")]
+        reminders: list[ft.Control] = [section_title_small("Ближайшие напоминания")]
         reminders.append(hint("За 30 дней до дня рождения"))
         if alerts:
             reminders.append(
                 ft.FilledButton(
-                    "🎁 Создать расходы на подарки за этот месяц",
+                    "Создать расходы на подарки за этот месяц",
                     on_click=lambda e: self._auto_create(),
                 )
             )

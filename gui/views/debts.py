@@ -30,7 +30,7 @@ class DebtsView(View):
                                   on_click=lambda e: self._open_form())
 
         if not debts:
-            return [add_btn, empty_state("💳 Нет долгов")]
+            return [add_btn, empty_state("Нет долгов")]
 
         cards = [self._debt_card(d) for d in debts]
         return [add_btn, card_grid(cards, col_lg=6)]
@@ -54,7 +54,7 @@ class DebtsView(View):
                 sub += f" · погашено {format_currency(d['repaidAmount'])}"
             rows.append(hint(sub))
         else:
-            rows.append(ft.Text("✅ Погашено", size=17, weight=ft.FontWeight.BOLD,
+            rows.append(ft.Text("Погашено", size=17, weight=ft.FontWeight.BOLD,
                                 color=COLORS["success"]))
 
         for r in d["repayments"]:
@@ -78,7 +78,7 @@ class DebtsView(View):
             )
 
         if remaining > 0:
-            amount_field = text_field("Сумма платежа, ₽", keyboard="number", width=160)
+            amount_field = text_field("Платёж, ₽", keyboard="number", width=200)
 
             def add_pay(e, field=amount_field, debt=d):
                 try:
@@ -104,7 +104,7 @@ class DebtsView(View):
             if proj.months_to_payoff and proj.projected_date:
                 rows.append(
                     hint(
-                        f"📈 При темпе ~{format_currency(proj.avg_monthly_rate)}/мес — "
+                        f"При темпе ~{format_currency(proj.avg_monthly_rate)}/мес — "
                         f"закроется к {month_year_short(proj.projected_date.month, proj.projected_date.year)} "
                         f"(≈{proj.months_to_payoff} мес.)"
                     )

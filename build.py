@@ -16,11 +16,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# CI Windows-раннеры дают cp1252-консоль -> любой не-ASCII print роняет скрипт
+# UnicodeEncodeError. Держим вывод ASCII и на всякий случай переключаем поток.
+for _stream in (sys.stdout, sys.stderr):
+    with contextlib.suppress(AttributeError, ValueError):
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 APP_DIR = Path(__file__).resolve().parent
 NAME = "FinanceCalculator"
@@ -125,7 +132,7 @@ def main() -> None:
     else:
         err("Build finished but no executable found in dist/.")
         sys.exit(1)
-    print("  budget.db хранится рядом с exe и не трогается обновлением.")
+    print("  budget.db lives next to the exe and survives updates.")
     print("=" * 60)
 
 

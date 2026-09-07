@@ -114,7 +114,7 @@ class ExpensesView(View):
                                  icon=ft.Icons.ADD)
 
         if not items:
-            body: ft.Control = empty_state("💸 Нет расходов за выбранный период")
+            body: ft.Control = empty_state("Нет расходов за выбранный период")
         else:
             total = sum(i["amount"] for i in items)
             cards = [self._item_card(i, gmap) for i in items]
@@ -145,7 +145,7 @@ class ExpensesView(View):
                            f"{MONTH_NAMES_RU[item['month']]} {item['year']}"))
         if item["isRecurring"]:
             tail = f" до {format_date_ru(item['recurringUntil'])}" if item["recurringUntil"] else ""
-            badges.append(hint("🔄" + tail))
+            badges.append(hint("повтор" + tail))
 
         return card(
             ft.Row(
@@ -290,7 +290,7 @@ class GroupsView(View):
                                  icon=ft.Icons.ADD)
 
         if not groups:
-            return [add_btn, empty_state("📁 Нет групп расходов")]
+            return [add_btn, empty_state("Нет групп расходов")]
 
         cards = []
         for g in groups:
