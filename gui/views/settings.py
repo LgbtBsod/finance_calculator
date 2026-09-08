@@ -1,4 +1,8 @@
-"""Экран «Настройки»: параметры зарплаты, резервная копия, тема, обновления."""
+"""Экран «Настройки»: налог и параметры выплат, резервная копия, тема, обновления.
+
+Оклад/КЕФ/метод распределения — не здесь: это сущность «доход» kind='salary'
+(экран «Доходы»), чтобы вести несколько работ.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +14,6 @@ from ..theme import COLORS
 from ..widgets import card, dropdown, hint, section_title, text_field
 from ._base import View
 
-_METHODS = [
-    ("proportional", "Пропорциональный (40% / 60%)"),
-    ("custom_proportions", "Свои пропорции"),
-    ("working_days", "По рабочим дням"),
-]
-
 
 class SettingsView(View):
     title = "Настройки"
@@ -23,20 +21,13 @@ class SettingsView(View):
     def content(self) -> list[ft.Control]:
         s = self.svc.get_settings()
 
-        base = text_field("Базовая зарплата, ₽", str(s["baseSalary"]), keyboard="number")
-        tax = text_field("Налог, %", str(s["taxRate"]), keyboard="number")
+        tax = text_field("Налог (НДФЛ), %", str(s["taxRate"]), keyboard="number")
         tax_progressive = ft.Switch(
             label="Прогрессивная шкала НДФЛ 2025 (13→22%, поле «Налог, %» игнорируется)",
             value=s["taxProgressive"], active_color=COLORS["accent"],
         )
-        kef = text_field("Коэффициент (КЕФ)", str(s["kef"]), keyboard="number")
         cutoff = text_field("День отсечения аванса", str(s["advanceCutoffDay"]), keyboard="number")
         std_hours = text_field("Стандартные часы", str(s["standardHours"]), keyboard="number")
-        method = dropdown("Метод расчёта зарплаты", _METHODS, s["salaryCalculationMethod"])
-        first_ratio = text_field("Доля 1-й половины (0–1)", str(s["firstHalfRatio"]),
-                                 keyboard="number")
-        second_ratio = text_field("Доля 2-й половины (0–1)", str(s["secondHalfRatio"]),
-                                  keyboard="number")
         inclusive = ft.Switch(label="День отсечения включён в 1-ю половину",
                               value=s["isAdvanceDateInclusive"], active_color=COLORS["accent"])
         acc_short = ft.Switch(label="Учитывать сокращённые дни отдельно",
@@ -52,15 +43,10 @@ class SettingsView(View):
 
             try:
                 updates = {
-                    "baseSalary": num(base),
                     "taxRate": num(tax),
                     "taxProgressive": tax_progressive.value,
-                    "kef": num(kef),
                     "advanceCutoffDay": num(cutoff, int),
                     "standardHours": num(std_hours, int),
-                    "salaryCalculationMethod": method.value,
-                    "firstHalfRatio": num(first_ratio),
-                    "secondHalfRatio": num(second_ratio),
                     "isAdvanceDateInclusive": inclusive.value,
                     "accountShortened": acc_short.value,
                     "payoutDay1": num(payout1, int),
@@ -72,13 +58,13 @@ class SettingsView(View):
                 return
             self.guard(lambda: self.svc.update_settings(updates), ok="Настройки сохранены")
 
-        salary_card = card(
+        payroll_card = card(
             ft.Column(
                 [
-                    base, tax, tax_progressive, kef,
+                    hint("Оклад, коэффициент и метод распределения теперь задаются в "
+                         "разделе «Доходы» (тип «Зарплата») — можно вести несколько работ."),
+                    tax, tax_progressive,
                     ft.Row([cutoff, std_hours], spacing=10),
-                    method,
-                    ft.Row([first_ratio, second_ratio], spacing=10),
                     inclusive, acc_short,
                     ft.Divider(color=COLORS["border"]),
                     ft.Text("Дни выплаты зарплаты", size=14, weight=ft.FontWeight.W_600,
@@ -92,8 +78,8 @@ class SettingsView(View):
         )
 
         return [
-            section_title("Параметры зарплаты"),
-            salary_card,
+            section_title("Налог и выплаты"),
+            payroll_card,
             section_title("Резервное копирование"),
             self._backup_card(),
             section_title("Оформление"),

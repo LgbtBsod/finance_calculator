@@ -43,3 +43,17 @@ class KernelCalendarReader:
 
     def classify_day(self, d: date) -> DayKind:
         return DayKind(self._k.request("calendar", "classify_day", iso=d.isoformat()))
+
+
+class KernelSalaryReader:
+    """Оклады, действующие в месяце — строки income с kind='salary'
+    (через ядро; проекция повторяющихся строк уже применена в db)."""
+
+    def __init__(self, view) -> None:
+        self._k = view
+
+    def __call__(self, year: int, month: int) -> list[dict]:
+        return [
+            i for i in self._k.request("db", "get_income", month=month, year=year)
+            if i.get("kind") == "salary"
+        ]

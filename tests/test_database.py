@@ -17,11 +17,13 @@ class TestSettings:
 
     def test_seeded_defaults_present_on_init(self, db: DatabaseManager):
         # _seed_defaults запускается в __init__ через _init_db
-        assert db.get_setting("base_salary") != ""
-        assert db.get_setting("salary_calculation_method") == "proportional"
+        assert db.get_setting("tax_rate") == "13.0"
+        assert db.get_setting("advance_cutoff_day") == "15"
         # ТК РФ ст. 136 — перенос выплаты с выходного на более ранний рабочий
         # день обязателен по умолчанию, а не опционален.
         assert db.get_setting("move_weekend_to_friday") == "true"
+        # оклад — не настройка (переехал в income kind='salary')
+        assert db.get_setting("base_salary") == ""
 
 
 class TestExpenseGroups:

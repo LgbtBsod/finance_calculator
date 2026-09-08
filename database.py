@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
+from datetime import date
 from pathlib import Path
 
 from config import SETTINGS
@@ -22,6 +23,10 @@ from models import (
 )
 
 __all__ = ["DatabaseManager"]
+
+
+def _today_year() -> int:
+    return date.today().year
 
 # Сентинел для трёхзначных PATCH-полей: отличает "аргумент не передан"
 # (оставить как есть) от "передан явный None" (очистить значение в БД).
@@ -54,7 +59,8 @@ _UNDO_TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
                  "is_recurring", "group_id", "recurring_until")),
     "income": ("income",
                ("id", "name", "amount", "half", "month", "year",
-                "is_recurring", "recurring_until")),
+                "is_recurring", "recurring_until", "kind", "kef", "split_method",
+                "first_half_ratio", "second_half_ratio")),
     "expense_group": ("expense_groups",
                       ("id", "name", "color", "parent_id", "sort_order", "monthly_limit")),
     "vacation": ("vacations",
@@ -199,16 +205,23 @@ class DatabaseManager:
                     FOREIGN KEY (group_id) REFERENCES expense_groups(id)
                 );
 
-                -- Доходы (прибавляются к балансу; зеркало expenses без групп)
+                -- Доходы (прибавляются к балансу). kind='fixed' — разовая/
+                -- повторяющаяся сумма; kind='salary' — оклад, который считает
+                -- SalaryCalculator (amount = оклад в месяц, + kef/метод/пропорции).
                 CREATE TABLE IF NOT EXISTS income (
-                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name           TEXT    NOT NULL,
-                    amount         REAL    NOT NULL DEFAULT 0.0,
-                    half           INTEGER NOT NULL DEFAULT 1,
-                    month          INTEGER NOT NULL,
-                    year           INTEGER NOT NULL,
-                    is_recurring   INTEGER NOT NULL DEFAULT 0,
-                    recurring_until TEXT
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name              TEXT    NOT NULL,
+                    amount            REAL    NOT NULL DEFAULT 0.0,
+                    half              INTEGER NOT NULL DEFAULT 1,
+                    month             INTEGER NOT NULL,
+                    year              INTEGER NOT NULL,
+                    is_recurring      INTEGER NOT NULL DEFAULT 0,
+                    recurring_until   TEXT,
+                    kind              TEXT    NOT NULL DEFAULT 'fixed',
+                    kef               REAL,
+                    split_method      TEXT,
+                    first_half_ratio  REAL,
+                    second_half_ratio REAL
                 );
 
                 -- Отпускные
@@ -296,11 +309,61 @@ class DatabaseManager:
         if "payment_half" not in debt_cols:
             c.execute("ALTER TABLE debts ADD COLUMN payment_half INTEGER NOT NULL DEFAULT 2")
 
+        # Доход как сущность-оклад: kind + параметры расчёта зарплаты.
+        income_cols = {row["name"] for row in c.execute("PRAGMA table_info(income)").fetchall()}
+        for col, decl in (
+            ("kind", "TEXT NOT NULL DEFAULT 'fixed'"),
+            ("kef", "REAL"), ("split_method", "TEXT"),
+            ("first_half_ratio", "REAL"), ("second_half_ratio", "REAL"),
+        ):
+            if col not in income_cols:
+                c.execute(f"ALTER TABLE income ADD COLUMN {col} {decl}")
+
+        c.commit()
+        self._migrate_salary_settings_to_income(c)
+
+    def _migrate_salary_settings_to_income(self, c: sqlite3.Connection) -> None:
+        """Разовый перенос: оклад из таблицы settings -> строка income
+        (kind='salary'). После переноса ключи оклада из settings удаляются —
+        SSOT: оклад живёт как доход, а не как настройка."""
+        if c.execute("SELECT 1 FROM income WHERE kind='salary' LIMIT 1").fetchone():
+            return
+        base_row = c.execute("SELECT value FROM settings WHERE key='base_salary'").fetchone()
+        if base_row is None:
+            return
+        try:
+            base_amount = float(base_row["value"])
+        except (TypeError, ValueError):
+            return
+
+        def _s(key: str, default: str) -> str:
+            r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return r["value"] if r and r["value"] not in (None, "") else default
+
+        yr = c.execute(
+            "SELECT MIN(y) FROM (SELECT year AS y FROM expenses "
+            "UNION SELECT year FROM income UNION SELECT year FROM debts)"
+        ).fetchone()
+        eff_year = (yr[0] if yr and yr[0] else _today_year())
+        if base_amount > 0:
+            c.execute(
+                "INSERT INTO income (name, amount, half, month, year, is_recurring, kind, "
+                "kef, split_method, first_half_ratio, second_half_ratio) "
+                "VALUES ('Зарплата', ?, 1, 1, ?, 1, 'salary', ?, ?, ?, ?)",
+                (base_amount, eff_year, float(_s("kef", "1.0")),
+                 _s("salary_calculation_method", "proportional"),
+                 float(_s("first_half_ratio", "0.4")), float(_s("second_half_ratio", "0.6"))),
+            )
+        for key in ("base_salary", "kef", "salary_calculation_method",
+                    "first_half_ratio", "second_half_ratio"):
+            c.execute("DELETE FROM settings WHERE key=?", (key,))
         c.commit()
 
     def _seed_defaults(self, c: sqlite3.Connection) -> None:
         """Первичное заполнение таблицы settings из config.SETTINGS —
-        единственного источника доменных дефолтов."""
+        единственного источника доменных дефолтов. Оклад НЕ заводится:
+        пустой калькулятор -> нулевая зарплата, пока пользователь не добавит
+        строку дохода kind='salary' (несколько работ = несколько строк)."""
         for spec in SETTINGS:
             c.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -592,15 +655,22 @@ class DatabaseManager:
     #  INCOME (доходы — зеркало expenses без групп, прибавляются к балансу)
     # ═════════════════════════════════════════════════════════
 
+    _INCOME_COLS = ("id, name, amount, half, month, year, is_recurring, recurring_until, "
+                    "kind, kef, split_method, first_half_ratio, second_half_ratio")
+
     def add_income(
         self, name: str, amount: float, half: int, month: int, year: int,
         is_recurring: bool = False, recurring_until: str | None = None,
+        kind: str = "fixed", kef: float | None = None, split_method: str | None = None,
+        first_half_ratio: float | None = None, second_half_ratio: float | None = None,
     ) -> int:
         with self._transaction() as c:
             cursor = c.execute(
-                "INSERT INTO income (name, amount, half, month, year, is_recurring, recurring_until) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (name, amount, half, month, year, int(is_recurring), recurring_until),
+                "INSERT INTO income (name, amount, half, month, year, is_recurring, "
+                "recurring_until, kind, kef, split_method, first_half_ratio, second_half_ratio) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (name, amount, half, month, year, int(is_recurring), recurring_until,
+                 kind, kef, split_method, first_half_ratio, second_half_ratio),
             )
             return cursor.lastrowid
 
@@ -609,7 +679,7 @@ class DatabaseManager:
     ) -> list[IncomeRow]:
         """Доходы за период — та же проекция повторяющихся строк вперёд, что и
         у расходов (см. get_expenses)."""
-        cols = "id, name, amount, half, month, year, is_recurring, recurring_until"
+        cols = self._INCOME_COLS
         with self._transaction() as c:
             if month is not None and year is not None:
                 rows = c.execute(
@@ -636,23 +706,31 @@ class DatabaseManager:
         self, iid: int, name: str | None = None, amount: float | None = None,
         half: int | None = None, is_recurring: bool | None = None,
         recurring_until: str | None | object = _UNSET,
+        kef: float | None = None, split_method: str | None = None,
+        first_half_ratio: float | None = None, second_half_ratio: float | None = None,
     ) -> None:
         with self._transaction() as c:
-            current = c.execute(
-                "SELECT name, amount, half, is_recurring, recurring_until FROM income WHERE id=?",
-                (iid,),
+            cur = c.execute(
+                "SELECT name, amount, half, is_recurring, recurring_until, "
+                "kef, split_method, first_half_ratio, second_half_ratio "
+                "FROM income WHERE id=?", (iid,),
             ).fetchone()
-            if not current:
+            if not cur:
                 raise ValueError(f"Income with id {iid} not found")
+
+            def _keep(new, key):
+                return new if new is not None else cur[key]
+
             c.execute(
-                "UPDATE income SET name=?, amount=?, half=?, is_recurring=?, recurring_until=? "
-                "WHERE id=?",
+                "UPDATE income SET name=?, amount=?, half=?, is_recurring=?, recurring_until=?, "
+                "kef=?, split_method=?, first_half_ratio=?, second_half_ratio=? WHERE id=?",
                 (
-                    name if name is not None else current["name"],
-                    amount if amount is not None else current["amount"],
-                    half if half is not None else current["half"],
-                    int(is_recurring if is_recurring is not None else bool(current["is_recurring"])),
-                    current["recurring_until"] if recurring_until is _UNSET else recurring_until,
+                    _keep(name, "name"), _keep(amount, "amount"), _keep(half, "half"),
+                    int(is_recurring if is_recurring is not None else bool(cur["is_recurring"])),
+                    cur["recurring_until"] if recurring_until is _UNSET else recurring_until,
+                    _keep(kef, "kef"), _keep(split_method, "split_method"),
+                    _keep(first_half_ratio, "first_half_ratio"),
+                    _keep(second_half_ratio, "second_half_ratio"),
                     iid,
                 ),
             )
@@ -1015,7 +1093,9 @@ def _income_from_row(
     d["is_recurring"] = bool(d["is_recurring"])
     d.setdefault("recurring_until", None)
     d["projected"] = _is_projected(d, view_month, view_year)
-    if view_month is not None and view_year is not None:
+    # Оклад (kind='salary') всегда показывает СВОЙ месяц «действует с» —
+    # подмена на просматриваемый период тут только запутала бы.
+    if d.get("kind") != "salary" and view_month is not None and view_year is not None:
         d["month"] = view_month
         d["year"] = view_year
     _apply_override(d, override_amount)

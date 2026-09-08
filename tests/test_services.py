@@ -54,17 +54,27 @@ class TestIncome:
         service.delete_income(i["id"])
         assert service.list_income() == []
 
-    def test_income_adds_to_balance(self, service: FinanceService):
-        service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
+    def test_income_adds_to_balance(self, service: FinanceService, add_salary):
+        service.update_settings({"taxRate": 0})
+        add_salary(100000)
         service.create_income(name="Аренда", amount=20000, half=1, month=6, year=2025)
         b = service.balance(6, 2025)
         assert b["incomeHalf1"] == 20000
         assert b["balanceHalf1"] == pytest.approx(b["toPayHalf1"] + 20000)
 
+    def test_salary_income_not_double_counted_as_other_income(self, service: FinanceService,
+                                                              add_salary):
+        service.update_settings({"taxRate": 0})
+        add_salary(100000)
+        b = service.balance(6, 2025)
+        assert b["netSalary"] == 100000        # оклад посчитан калькулятором
+        assert b["incomeHalf1"] == 0 and b["incomeHalf2"] == 0   # не «прочий доход»
+
 
 class TestDebtMonthlyPayment:
-    def test_planned_payment_deducted_from_balance(self, service: FinanceService):
-        service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
+    def test_planned_payment_deducted_from_balance(self, service: FinanceService, add_salary):
+        service.update_settings({"taxRate": 0})
+        add_salary(100000)
         service.create_debt(title="Кредит", total_amount=100000,
                             monthly_payment=8000, payment_half=2, month=1, year=2025)
         b = service.balance(6, 2025)  # долг создан в янв 2025, июнь — он ещё «жив»
@@ -101,8 +111,9 @@ class TestPerMonthOverride:
         may = service.list_expenses(5, 2025)[0]
         assert may["amount"] == 35000 and may["overridden"] is True
 
-    def test_override_flows_into_balance(self, service: FinanceService):
-        service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
+    def test_override_flows_into_balance(self, service: FinanceService, add_salary):
+        service.update_settings({"taxRate": 0})
+        add_salary(100000)
         e = service.create_expense(name="Аренда", amount=30000, half=1, month=1, year=2025,
                                    is_recurring=True)
         base = service.balance(5, 2025)["expensesHalf1"]
@@ -262,8 +273,9 @@ class TestAnalytics:
 
 
 class TestBalance:
-    def test_balance_subtracts_expenses(self, service: FinanceService):
-        service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
+    def test_balance_subtracts_expenses(self, service: FinanceService, add_salary):
+        service.update_settings({"taxRate": 0})
+        add_salary(100000)
         service.create_expense(name="rent", amount=20000, half=1, month=6, year=2025)
         b = service.balance(6, 2025)
         assert b["netSalary"] == 100000

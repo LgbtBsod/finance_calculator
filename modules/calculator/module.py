@@ -12,7 +12,7 @@ from typing import Any
 from calculator import SalaryCalculator
 from core.module import Module
 
-from ._shims import KernelCalendarReader, KernelVacationReader
+from ._shims import KernelCalendarReader, KernelSalaryReader, KernelVacationReader
 
 
 class CalculatorModule(Module):
@@ -23,13 +23,16 @@ class CalculatorModule(Module):
         super().__init__()
         self._vacs: KernelVacationReader | None = None
         self._cal: KernelCalendarReader | None = None
+        self._salaries: KernelSalaryReader | None = None
 
     def initialize(self) -> None:
         self._vacs = KernelVacationReader(self.k)
         self._cal = KernelCalendarReader(self.k)
+        self._salaries = KernelSalaryReader(self.k)
         # Инвариант: коллабораторы SalaryCalculator определены в ЭТОМ пакете.
         assert type(self._vacs).__module__.startswith("modules.calculator")
         assert type(self._cal).__module__.startswith("modules.calculator")
+        assert type(self._salaries).__module__.startswith("modules.calculator")
         self._actions = {
             "calculate": self._calculate,
             "balance": self._balance,
@@ -40,6 +43,7 @@ class CalculatorModule(Module):
         snapshot = dict(self.k.request("db", "get_settings_bundle"))
         return SalaryCalculator(
             get_setting=lambda key: str(snapshot.get(key, "")),
+            salaries=self._salaries,
             vacations=self._vacs,
             calendar_reader=self._cal,
         )

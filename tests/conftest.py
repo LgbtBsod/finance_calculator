@@ -71,6 +71,19 @@ def service(kernel) -> FinanceService:
 
 
 @pytest.fixture
+def add_salary(service):
+    """Хелпер: завести оклад-доход (kind='salary'). По умолчанию 100000/мес,
+    пропорционально, действует с января 2000 (т.е. всегда активен)."""
+    def _add(amount: float = 100000.0, *, method: str = "proportional", kef: float = 1.0,
+             month: int = 1, year: int = 2000, name: str = "ЗП", **kw):
+        return service.create_income(
+            name=name, amount=amount, half=1, month=month, year=year, kind="salary",
+            kef=kef, split_method=method, first_half_ratio=0.4, second_half_ratio=0.6, **kw,
+        )
+    return _add
+
+
+@pytest.fixture
 def file_service(tmp_path) -> FinanceService:
     """Фасад поверх ядра с файловой БД (нужен для backup)."""
     svc = FinanceService(build_kernel(str(tmp_path / "budget.db")))

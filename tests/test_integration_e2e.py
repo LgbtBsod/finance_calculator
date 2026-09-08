@@ -15,8 +15,8 @@ from services import FinanceService, ValidationError
 
 
 class TestSalaryAndExpensesFlow:
-    def test_full_balance_with_expenses_and_vacation(self, service: FinanceService):
-        service.update_settings({"baseSalary": 100000, "kef": 1.5})
+    def test_full_balance_with_expenses_and_vacation(self, service: FinanceService, add_salary):
+        add_salary(100000, kef=1.5)
 
         food = service.create_expense_group(name="Еда", color="#FF0000")
         transport = service.create_expense_group(
@@ -116,12 +116,19 @@ class TestBirthdayFlow:
 class TestSettingsAndValidation:
     def test_settings_roundtrip(self, service: FinanceService):
         service.update_settings(
-            {"baseSalary": 123456, "salaryCalculationMethod": "working_days", "payoutDay1": 7}
+            {"taxRate": 15, "advanceCutoffDay": 20, "payoutDay1": 7}
         )
         s = service.get_settings()
-        assert s["baseSalary"] == 123456
-        assert s["salaryCalculationMethod"] == "working_days"
+        assert s["taxRate"] == 15
+        assert s["advanceCutoffDay"] == 20
         assert s["payoutDay1"] == 7
+
+    def test_salary_is_income_entity_not_setting(self, service: FinanceService, add_salary):
+        add_salary(90000, method="working_days")
+        salaries = service.list_salaries()
+        assert len(salaries) == 1
+        assert salaries[0]["kind"] == "salary" and salaries[0]["splitMethod"] == "working_days"
+        assert "baseSalary" not in service.get_settings()
 
     def test_bad_dates_rejected(self, service: FinanceService):
         with pytest.raises(ValidationError):

@@ -28,14 +28,19 @@ class TestSettingSpec:
         assert len(SETTINGS_BY_KEY) == len(SETTINGS)
 
     def test_gui_settings_screen_keys_are_covered(self):
-        # camelCase-поля, которые читает gui/views/settings.py
+        # camelCase-поля, которые читает gui/views/settings.py (оклад/КЕФ/метод
+        # переехали в сущность «доход» kind='salary', здесь их нет).
         gui_fields = {
-            "baseSalary", "taxRate", "kef", "advanceCutoffDay", "standardHours",
-            "salaryCalculationMethod", "firstHalfRatio", "secondHalfRatio",
+            "taxRate", "taxProgressive", "advanceCutoffDay", "standardHours",
             "isAdvanceDateInclusive", "accountShortened", "payoutDay1", "payoutDay2",
             "moveWeekendToFriday",
         }
         assert gui_fields <= {s.camel for s in SETTINGS}
+
+    def test_salary_keys_are_not_settings_anymore(self):
+        camels = {s.camel for s in SETTINGS}
+        assert camels.isdisjoint({"baseSalary", "kef", "salaryCalculationMethod",
+                                  "firstHalfRatio", "secondHalfRatio"})
 
 
 class TestSettingsSSOT:
@@ -45,18 +50,18 @@ class TestSettingsSSOT:
 
     def test_finance_settings_get_returns_typed_values(self, kernel):
         got = kernel.view("t").request("finance", "settings_get")
-        assert got["baseSalary"] == 100000.0
+        assert got["taxRate"] == 13.0
         assert got["advanceCutoffDay"] == 15 and isinstance(got["advanceCutoffDay"], int)
         assert got["moveWeekendToFriday"] is True
-        assert got["salaryCalculationMethod"] == "proportional"
+        assert got["taxProgressive"] is False
 
     def test_finance_settings_update_roundtrips_through_the_spec(self, kernel):
         v = kernel.view("t")
         v.request("finance", "settings_update", updates={
-            "baseSalary": 130000, "moveWeekendToFriday": False, "advanceCutoffDay": 20,
+            "taxRate": 15, "moveWeekendToFriday": False, "advanceCutoffDay": 20,
         })
         got = v.request("finance", "settings_get")
-        assert got["baseSalary"] == 130000.0
+        assert got["taxRate"] == 15.0
         assert got["moveWeekendToFriday"] is False
         assert got["advanceCutoffDay"] == 20
         # значение в БД — строка нужного вида

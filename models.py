@@ -189,6 +189,13 @@ class IncomeRow(TypedDict):
     recurring_until: str | None
     projected: bool
     overridden: bool
+    # kind='fixed' — разовая/повторяющаяся сумма (в баланс как «прочий доход»);
+    # kind='salary' — оклad, считается SalaryCalculator (amount = оклад/мес).
+    kind: str
+    kef: float | None
+    split_method: str | None
+    first_half_ratio: float | None
+    second_half_ratio: float | None
 
 
 class BirthdayRow(TypedDict):

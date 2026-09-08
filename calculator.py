@@ -69,104 +69,126 @@ class SalaryCalculator:
     def __init__(
         self,
         get_setting: Callable[[str], str],
+        salaries: Callable[[int, int], list[dict]] | list[dict] | None = None,
         vacations: VacationReader | None = None,
         calendar_reader: CalendarReader | None = None,
     ) -> None:
         self._get = get_setting
+        self._salaries = salaries
         self._vacs = vacations
         self._calendar_reader = calendar_reader
 
-    def calculate(self, year: int, month: int) -> SalaryBreakdown:
+    def _salary_rows(self, year: int, month: int) -> list[dict]:
+        """Оклады, действующие в ``(year, month)``.
+
+        Источник — переданный ``salaries`` (список окладов-доходов). Если он
+        не передан — обратная совместимость: один оклад из настроек
+        ``base_salary``/``kef``/``salary_calculation_method``/пропорции
+        (используется прямыми юнит-тестами SalaryCalculator)."""
+        src = self._salaries
+        if callable(src):
+            src = src(year, month)
+        if src:
+            return list(src)
         base = float(self._get("base_salary") or 0)
+        if base <= 0:
+            return []
+        return [{
+            "amount": base,
+            "kef": float(self._get("kef") or 1.0),
+            "split_method": self._get("salary_calculation_method") or "proportional",
+            "first_half_ratio": float(self._get("first_half_ratio") or 0.4),
+            "second_half_ratio": float(self._get("second_half_ratio") or 0.6),
+        }]
+
+    def calculate(self, year: int, month: int) -> SalaryBreakdown:
+        rows = self._salary_rows(year, month)
         tax = float(self._get("tax_rate") or 13)
-        kef = float(self._get("kef") or 1.0)
-        method = self._get("salary_calculation_method") or "proportional"
+        progressive = self._get("tax_progressive") == "true"
+        cutoff_day = int(self._get("advance_cutoff_day") or 15)
 
-        # Полный оклад за месяц после налога и коэффициента (норма).
-        gross = base * kef
-        if self._get("tax_progressive") == "true":
-            # Предельный налог именно этого месяца: НДФЛ с дохода нарастающим
-            # итогом ПО этот месяц минус НДФЛ по ПРЕДЫДУЩИЙ (оклад считаем
-            # постоянным в течение года).
-            ytd_now = progressive_ndfl(gross * month)
-            ytd_before = progressive_ndfl(gross * (month - 1))
-            net = gross - (ytd_now - ytd_before)
-        else:
-            net = gross * (1.0 - tax / 100.0)
-
-        wd_h1 = wd_h2 = wd_total = None
-        cutoff_day = None
-
-        # ТК РФ: за дни отпуска платят отпускные, а не оклад — оклад за месяц
-        # уменьшается пропорционально отработанным дням. Это правило от метода
-        # распределения не зависит: применяем ко ВСЕМ методам, если доступен
-        # производственный календарь и в месяце реально есть рабочие дни
-        # отпуска. Отпускные добавляются отдельно (см. _distribute_vacations).
+        # Норма рабочих дней месяца и дни отпуска — общие для всех окладов.
         vac_wd_h1, vac_wd_h2 = self._vacation_working_days(year, month)
-        if (vac_wd_h1 + vac_wd_h2) > 0 and self._calendar_reader is not None:
-            norm_total, _, _ = self._calendar_reader.get_working_days(year, month)
-            if norm_total > 0:
-                worked = max(0.0, norm_total - vac_wd_h1 - vac_wd_h2)
-                net = net * worked / norm_total
+        norm_h1 = norm_h2 = None
+        worked_fraction = 1.0
+        if self._calendar_reader is not None:
+            norm_total, norm_h1, norm_h2 = self._calendar_reader.get_working_days(year, month)
+            if (vac_wd_h1 + vac_wd_h2) > 0 and norm_total > 0:
+                worked_fraction = max(0.0, norm_total - vac_wd_h1 - vac_wd_h2) / norm_total
 
-        # Распределение по половинам месяца в зависимости от метода
-        match method:
-            case "working_days" if self._calendar_reader:
-                _, norm_h1, norm_h2 = self._calendar_reader.get_working_days(year, month)
-                wd_h1 = max(0.0, norm_h1 - vac_wd_h1)
-                wd_h2 = max(0.0, norm_h2 - vac_wd_h2)
-                wd_total = wd_h1 + wd_h2
-                cutoff_day = int(self._get("advance_cutoff_day") or 15)
+        net_sum = adv_sum = pay_sum = 0.0
+        wd_h1_sum = wd_h2_sum = 0.0
+        any_working_days = False
+        methods: set[str] = set()
 
-                match wd_total:
-                    case 0:
-                        advance_ratio, payout_ratio = 0.4, 0.6  # fallback
-                    case _:
-                        advance_ratio, payout_ratio = wd_h1 / wd_total, wd_h2 / wd_total
-            case "custom_proportions":
-                # Пользовательские пропорции из настроек
-                first_half = float(self._get("first_half_ratio") or "0.4")
-                second_half = float(self._get("second_half_ratio") or "0.6")
-                # Нормализуем чтобы сумма была 1.0
-                total = first_half + second_half
-                match total:
-                    case 0:
-                        advance_ratio, payout_ratio = 0.4, 0.6
-                    case _:
-                        advance_ratio = first_half / total
-                        payout_ratio = second_half / total
-            case _:
-                # Пропорциональный метод: 40% аванс, 60% основная выплата
-                advance_ratio = 0.4
-                payout_ratio = 0.6
+        for r in rows:
+            base = float(r.get("amount") or 0)
+            kef = float(r["kef"]) if r.get("kef") is not None else 1.0
+            method = r.get("split_method") or "proportional"
+            methods.add(method)
 
-        advance = net * advance_ratio
-        payout = net * payout_ratio
+            gross = base * kef
+            if progressive:
+                net = gross - (progressive_ndfl(gross * month)
+                               - progressive_ndfl(gross * (month - 1)))
+            else:
+                net = gross * (1.0 - tax / 100.0)
+            # ТК РФ: оклад за месяц уменьшается пропорционально отработанным
+            # дням (за дни отпуска — отпускные, а не оклад).
+            net *= worked_fraction
+
+            if method == "working_days" and norm_h1 is not None:
+                any_working_days = True
+                w1 = max(0.0, norm_h1 - vac_wd_h1)
+                w2 = max(0.0, norm_h2 - vac_wd_h2)
+                wd_h1_sum += w1
+                wd_h2_sum += w2
+                wt = w1 + w2
+                a_ratio, p_ratio = (w1 / wt, w2 / wt) if wt else (0.4, 0.6)
+            elif method == "custom_proportions":
+                fh = float(r["first_half_ratio"]) if r.get("first_half_ratio") is not None else 0.4
+                sh = float(r["second_half_ratio"]) if r.get("second_half_ratio") is not None else 0.6
+                tot = fh + sh
+                a_ratio, p_ratio = (fh / tot, sh / tot) if tot else (0.4, 0.6)
+            else:
+                a_ratio, p_ratio = 0.4, 0.6
+
+            net_sum += net
+            adv_sum += net * a_ratio
+            pay_sum += net * p_ratio
 
         vac_h1, vac_h2 = self._distribute_vacations(year, month)
         nominal_1, nominal_2 = self.nominal_payout_dates(year, month)
         payout_date_1 = self._roll_back_to_working_day(nominal_1)
         payout_date_2 = self._roll_back_to_working_day(nominal_2)
 
-        accrued = net + vac_h1 + vac_h2
+        if any_working_days:
+            method_label = "working_days"
+        elif len(methods) == 1:
+            method_label = methods.pop()
+        elif methods:
+            method_label = "mixed"
+        else:
+            method_label = "proportional"
+
         return SalaryBreakdown(
-            net_salary=net,
-            advance=advance,
-            payout=payout,
+            net_salary=net_sum,
+            advance=adv_sum,
+            payout=pay_sum,
             vacation_half_1=vac_h1,
             vacation_half_2=vac_h2,
-            total_accrued=accrued,
-            to_pay_half_1=advance + vac_h1,
-            to_pay_half_2=payout + vac_h2,
+            total_accrued=net_sum + vac_h1 + vac_h2,
+            to_pay_half_1=adv_sum + vac_h1,
+            to_pay_half_2=pay_sum + vac_h2,
             payout_date_1=payout_date_1.isoformat(),
             payout_date_2=payout_date_2.isoformat(),
             payout_date_1_nominal=nominal_1.isoformat(),
             payout_date_2_nominal=nominal_2.isoformat(),
-            calculation_method=method,
-            working_days_half_1=wd_h1,
-            working_days_half_2=wd_h2,
-            working_days_total=wd_total,
-            advance_cutoff_day=cutoff_day,
+            calculation_method=method_label,
+            working_days_half_1=wd_h1_sum if any_working_days else None,
+            working_days_half_2=wd_h2_sum if any_working_days else None,
+            working_days_total=(wd_h1_sum + wd_h2_sum) if any_working_days else None,
+            advance_cutoff_day=cutoff_day if any_working_days else None,
         )
 
     # ── даты выплат ──────────────────────────────────────────────

@@ -178,40 +178,63 @@ class FinanceService:
             "overridden": i.get("overridden", False),
             "month": i["month"],
             "year": i["year"],
+            # kind='salary' — оклад: считается SalaryCalculator по своим
+            # параметрам (kef / метод / пропорции), не суммируется как «прочий».
+            "kind": i.get("kind", "fixed"),
+            "kef": i.get("kef"),
+            "splitMethod": i.get("split_method"),
+            "firstHalfRatio": i.get("first_half_ratio"),
+            "secondHalfRatio": i.get("second_half_ratio"),
         }
 
     def list_income(self, month: int | None = None, year: int | None = None) -> list[dict]:
-        return [self._income_out(i) for i in self.k.request("db", "get_income", month=month, year=year)]
+        return [self._income_out(i)
+                for i in self.k.request("db", "get_income", month=month, year=year)]
 
     def create_income(
         self, *, name: str, amount: float, half: int, month: int, year: int,
         is_recurring: bool = False, recurring_until: str | None = None,
+        kind: str = "fixed", kef: float | None = None, split_method: str | None = None,
+        first_half_ratio: float | None = None, second_half_ratio: float | None = None,
     ) -> dict:
         if recurring_until:
             validate_iso_date(recurring_until, "recurringUntil")
+        if kind == "salary":
+            is_recurring = True   # оклад по определению действует далее
         res = self.k.request(
             "db", "add_income", name=name, amount=amount, half=half, month=month, year=year,
-            is_recurring=is_recurring, recurring_until=recurring_until,
+            is_recurring=is_recurring, recurring_until=recurring_until, kind=kind, kef=kef,
+            split_method=split_method, first_half_ratio=first_half_ratio,
+            second_half_ratio=second_half_ratio,
         )
         return self._income_out({
             "id": res["id"], "name": name, "amount": amount, "half": half,
             "is_recurring": is_recurring, "recurring_until": recurring_until,
-            "month": month, "year": year,
+            "month": month, "year": year, "kind": kind, "kef": kef,
+            "split_method": split_method, "first_half_ratio": first_half_ratio,
+            "second_half_ratio": second_half_ratio,
         })
 
     def update_income(
         self, item_id: str, *, name: str | None = None, amount: float | None = None,
         half: int | None = None, is_recurring: bool | None = None,
-        recurring_until: Any = _UNSET,
+        recurring_until: Any = _UNSET, kef: float | None = None,
+        split_method: str | None = None, first_half_ratio: float | None = None,
+        second_half_ratio: float | None = None,
     ) -> dict | None:
         if isinstance(recurring_until, str) and recurring_until:
             validate_iso_date(recurring_until, "recurringUntil")
         payload: dict = {"iid": int(item_id), "name": name, "amount": amount, "half": half,
-                         "is_recurring": is_recurring}
+                         "is_recurring": is_recurring, "kef": kef,
+                         "split_method": split_method, "first_half_ratio": first_half_ratio,
+                         "second_half_ratio": second_half_ratio}
         if recurring_until is not _UNSET:
             payload["recurring_until"] = recurring_until
         i = self.k.request("db", "update_income", **payload)
         return self._income_out(i) if i else None
+
+    def list_salaries(self, month: int | None = None, year: int | None = None) -> list[dict]:
+        return [i for i in self.list_income(month, year) if i["kind"] == "salary"]
 
     def delete_income(self, item_id: str) -> dict:
         return self.k.request("db", "delete_income", iid=int(item_id))

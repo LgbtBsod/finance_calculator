@@ -12,7 +12,9 @@ def req(kernel, target, action, **kw):
 class TestDBModule:
     def test_settings_bundle(self, kernel):
         b = req(kernel, "db", "get_settings_bundle")
-        assert b["base_salary"] == "100000.0"
+        assert b["tax_rate"] == "13.0"
+        assert b["move_weekend_to_friday"] == "true"
+        assert "base_salary" not in b   # оклад — не настройка
 
     def test_expense_crud_and_events(self, kernel):
         events = []
@@ -81,17 +83,33 @@ class TestCalendarModule:
         assert len(out) == 7
 
 
+def _add_salary(kernel, amount, *, method="proportional", month=1, year=2000):
+    return req(kernel, "db", "add_income", name="ЗП", amount=amount, half=1, month=month,
+               year=year, is_recurring=True, recurring_until=None, kind="salary", kef=1.0,
+               split_method=method, first_half_ratio=0.4, second_half_ratio=0.6)
+
+
 class TestCalculatorModule:
     def test_balance_shape(self, kernel):
+        _add_salary(kernel, 100000)
         b = req(kernel, "calculator", "balance", year=2025, month=7)
         assert set(b) == {"salary", "expenses_h1", "expenses_h2", "balance_h1", "balance_h2"}
         assert b["salary"]["net_salary"] > 0
 
-    def test_settings_snapshot_used(self, kernel):
-        req(kernel, "db", "set_setting", key="base_salary", value="200000")
+    def test_no_salary_income_means_zero_salary(self, kernel):
         b = req(kernel, "calculator", "calculate", year=2025, month=7)
-        # 200000 * 1.0 * (1 - 0.13)
-        assert b["net_salary"] == pytest.approx(174000.0)
+        assert b["net_salary"] == 0.0
+
+    def test_salary_income_drives_calculation(self, kernel):
+        _add_salary(kernel, 200000)
+        b = req(kernel, "calculator", "calculate", year=2025, month=7)
+        assert b["net_salary"] == pytest.approx(174000.0)   # 200000 * (1 - 0.13)
+
+    def test_two_salaries_are_summed(self, kernel):
+        _add_salary(kernel, 100000)
+        _add_salary(kernel, 50000)
+        b = req(kernel, "calculator", "calculate", year=2025, month=7)
+        assert b["net_salary"] == pytest.approx(150000 * 0.87)
 
 
 class TestBirthdaysModule:
@@ -117,15 +135,22 @@ class TestFinanceModule:
         assert s["total"] == 999  # пересчитано, не из кэша
 
     def test_settings_roundtrip(self, kernel):
-        req(kernel, "finance", "settings_update", updates={"baseSalary": 123456})
-        assert req(kernel, "finance", "settings_get")["baseSalary"] == 123456
+        req(kernel, "finance", "settings_update", updates={"advanceCutoffDay": 18})
+        assert req(kernel, "finance", "settings_get")["advanceCutoffDay"] == 18
 
     def test_settings_change_invalidates_balance_cache(self, kernel):
+        _add_salary(kernel, 100000)
         b1 = req(kernel, "finance", "balance", month=7, year=2025)
-        req(kernel, "finance", "settings_update",
-            updates={"baseSalary": 999999, "taxRate": 0, "kef": 1.0})
+        req(kernel, "finance", "settings_update", updates={"taxRate": 0})
         b2 = req(kernel, "finance", "balance", month=7, year=2025)
-        assert b2["netSalary"] == 999999 and b2 != b1  # пересчитано, не из кэша
+        assert b2["netSalary"] == 100000 and b2 != b1  # пересчитано, не из кэша
+
+    def test_salary_income_change_invalidates_balance_cache(self, kernel):
+        sal = _add_salary(kernel, 100000)
+        b1 = req(kernel, "finance", "balance", month=7, year=2025)
+        req(kernel, "db", "update_income", iid=sal["id"], amount=250000)
+        b2 = req(kernel, "finance", "balance", month=7, year=2025)
+        assert b2["netSalary"] == pytest.approx(250000 * 0.87) and b2 != b1
 
     def test_income_added_to_balance_half(self, kernel):
         b0 = req(kernel, "finance", "balance", month=7, year=2025)

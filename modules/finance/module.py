@@ -77,7 +77,10 @@ class FinanceModule(Module):
         r = self.k.request("calculator", "balance", year=year, month=month)
         s = r["salary"]
 
-        income = self.k.request("db", "get_income", month=month, year=year)
+        # «Прочий доход» — только kind='fixed'; оклады (kind='salary') уже
+        # посчитаны SalaryCalculator и лежат в r["salary"].
+        income = [i for i in self.k.request("db", "get_income", month=month, year=year)
+                  if i.get("kind", "fixed") == "fixed"]
         inc_h1 = sum(i["amount"] for i in income if i["half"] == 1)
         inc_h2 = sum(i["amount"] for i in income if i["half"] == 2)
 

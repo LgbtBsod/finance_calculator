@@ -66,6 +66,10 @@ MONTH_NAMES_GENITIVE: dict[str, int] = {
 #   • modules/finance _settings_update — запись (значение GUI -> строка БД)
 # Все булевы хранятся строками "true"/"false" — их так читают
 # calculator.py / prod_calendar.py.
+#
+# Оклад (base_salary/kef/метод/пропорции) здесь НЕ живёт — это сущность
+# «доход» с kind='salary' (несколько окладов = несколько работ). Здесь
+# только «как устроена выплата»: налог, дни выплаты, отсечение, перенос.
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,17 +101,12 @@ class SettingSpec:
 
 
 SETTINGS: tuple[SettingSpec, ...] = (
-    SettingSpec("baseSalary", "base_salary", 100000.0, "float"),
     SettingSpec("taxRate", "tax_rate", 13.0, "float"),
     # Прогрессивная шкала НДФЛ 2025 вместо плоской taxRate.
     SettingSpec("taxProgressive", "tax_progressive", False, "bool"),
-    SettingSpec("kef", "kef", 1.0, "float"),
     SettingSpec("standardHours", "standard_hours", 40, "int"),
     SettingSpec("advanceCutoffDay", "advance_cutoff_day", 15, "int"),
     SettingSpec("isAdvanceDateInclusive", "is_advance_date_inclusive", True, "bool"),
-    SettingSpec("salaryCalculationMethod", "salary_calculation_method", "proportional", "str"),
-    SettingSpec("firstHalfRatio", "first_half_ratio", 0.4, "float"),
-    SettingSpec("secondHalfRatio", "second_half_ratio", 0.6, "float"),
     SettingSpec("accountShortened", "account_shortened", False, "bool"),
     SettingSpec("payoutDay1", "payout_day1", 10, "int"),
     SettingSpec("payoutDay2", "payout_day2", 25, "int"),
