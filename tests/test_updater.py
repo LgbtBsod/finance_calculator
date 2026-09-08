@@ -31,6 +31,39 @@ class TestVersioning:
         assert updater._is_newer_version("0.9.9", "1.0.0") is False
 
 
+class TestSha256Verification:
+    _URL = ("https://github.com/o/r/releases/download/v9.9.9/"
+            "FinanceCalculator-linux")
+
+    @pytest.fixture
+    def payload(self, tmp_path) -> Path:
+        p = tmp_path / "update.bin"
+        p.write_bytes(b"binary-payload-xxxxx")
+        return p
+
+    def test_matching_hash_passes(self, updater, payload):
+        good = updater._calculate_checksum(payload)
+        with patch.object(updater, "_http_text",
+                          return_value=f"{good}  FinanceCalculator-linux\n"):
+            ok, detail = updater._verify_sha256(payload, self._URL)
+        assert ok is True and "verified" in detail
+
+    def test_mismatching_hash_fails_closed(self, updater, payload):
+        with patch.object(updater, "_http_text", return_value=f"{'0' * 64}  x\n"):
+            ok, _ = updater._verify_sha256(payload, self._URL)
+        assert ok is False
+
+    def test_missing_sums_file_does_not_block(self, updater, payload):
+        with patch.object(updater, "_http_text", return_value=None):
+            ok, detail = updater._verify_sha256(payload, self._URL)
+        assert ok is True and "skip" in detail
+
+    def test_source_zipball_url_is_skipped(self, updater, payload):
+        ok, detail = updater._verify_sha256(
+            payload, "https://api.github.com/repos/o/r/zipball/v9.9.9")
+        assert ok is True and "skip" in detail
+
+
 class TestAssets:
     def test_platform_asset(self, updater):
         updater.is_frozen = False

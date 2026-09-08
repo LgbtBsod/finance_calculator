@@ -508,6 +508,30 @@ class AutoUpdater:
         with open(file_path, "rb") as f:
             return hashlib.file_digest(f, algorithm).hexdigest()
 
+    def _verify_sha256(self, file_path: Path, download_url: str) -> tuple[bool, str]:
+        """Сверяет SHA256 скачанного файла с ``<asset>.sha256`` из того же
+        релиза (тот же хост и TLS-контекст, что и бинарник).
+
+        Fail-closed, если файл сумм есть, но хеш не совпал или ассета в нём
+        нет. Отсутствие файла сумм НЕ блокирует — старые релизы (до v3.0.0b10)
+        их не публиковали, а zipball из исходников проверять нечем.
+        """
+        base = download_url.split("?", 1)[0]
+        if "/releases/download/" not in base:
+            return True, "unversioned-source (skip)"
+        sums_url = base + ".sha256"
+        raw = self._http_text(sums_url)
+        if not raw:
+            return True, "sums-file-unavailable (skip)"
+        want = raw.split()[0].strip().lower() if raw.split() else ""
+        if len(want) != 64:
+            return True, "sums-file-malformed (skip)"
+        got = self._calculate_checksum(file_path).lower()
+        if got != want:
+            logger.error("SHA256 mismatch: got %s… want %s…", got[:16], want[:16])
+            return False, f"got {got[:12]} != want {want[:12]}"
+        return True, f"verified {got[:16]}…"
+
     # ── установка (из исходников) ──────────────────────────────
 
     def _find_source_root(self, extracted_dir: Path) -> Path:
@@ -705,8 +729,11 @@ class AutoUpdater:
             if not zip_path.exists() or zip_path.stat().st_size < self.MIN_UPDATE_SIZE:
                 raise UpdateError("Downloaded file is empty or missing", recoverable=True)
 
-            checksum = self._calculate_checksum(zip_path)
-            logger.info("Download verified. SHA256: %s", checksum[:16])
+            ok, detail = self._verify_sha256(zip_path, zip_url)
+            if not ok:
+                self._restore_from_backup()
+                raise UpdateError(f"Checksum verification failed ({detail})", recoverable=False)
+            logger.info("Download SHA256 check: %s", detail)
 
             url_path = zip_url.lower().split("?", 1)[0]
             is_raw_binary = self.is_frozen and not url_path.endswith((".zip", ".tar.gz", ".tgz"))

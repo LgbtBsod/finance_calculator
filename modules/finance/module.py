@@ -125,7 +125,10 @@ class FinanceModule(Module):
         return self._cached(key, lambda: self._compute_summary(month, year))
 
     def _compute_summary(self, month: int | None, year: int | None) -> dict:
-        expenses = self.k.request("db", "get_expenses", month=month, year=year)
+        if month is not None and year is not None:
+            expenses = self.k.request("db", "get_expenses", month=month, year=year)
+        else:
+            expenses = self._expenses_all_time()   # «за всё время» — с разворотом повторов
         groups = {g["id"]: g for g in self.k.request("db", "get_expense_groups")}
         total = sum(e["amount"] for e in expenses)
 
@@ -145,6 +148,26 @@ class FinanceModule(Module):
 
         cats = sorted(by_cat.values(), key=lambda c: c["amount"], reverse=True)
         return {"total": total, "count": len(expenses), "categories": cats}
+
+    def _expenses_all_time(self) -> list[dict]:
+        """Все расходы за всё время с помесячным разворотом повторяющихся
+        строк (get_expenses без периода отдаёт сырьё — повтор посчитался бы
+        один раз вместо раз-в-месяц). Диапазон: от самого раннего расхода до
+        текущего месяца."""
+        raw = self.k.request("db", "get_expenses")
+        if not raw:
+            return []
+        start = min((e["year"], e["month"]) for e in raw)
+        today = date.today()
+        end = max(start, (today.year, today.month))
+        out: list[dict] = []
+        y, m = start
+        while (y, m) <= end:
+            out.extend(self.k.request("db", "get_expenses", month=m, year=y))
+            m += 1
+            if m == 13:
+                m, y = 1, y + 1
+        return out
 
     def _analytics_trend(self, month: int, year: int, months: int = 6) -> dict:
         key = f"analytics:trend:{year}-{month:02d}:{months}"

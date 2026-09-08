@@ -13,6 +13,7 @@ from ..widgets import (
     money_text,
     month_dropdown,
     section_title,
+    switch_row,
     year_dropdown,
 )
 from ._base import View
@@ -23,20 +24,29 @@ _TREND_MONTHS = 6
 class AnalyticsView(View):
     title = "Аналитика"
 
+    def __init__(self, app) -> None:
+        super().__init__(app)
+        self.all_time = False
+
     def content(self) -> list[ft.Control]:
-        summary = self.svc.analytics_summary(self.month, self.year)
+        if self.all_time:
+            summary = self.svc.analytics_summary()          # None, None -> за всё время
+        else:
+            summary = self.svc.analytics_summary(self.month, self.year)
         trend = self.svc.analytics_trend(self.month, self.year, _TREND_MONTHS)["months"]
 
         picker = card(
             ft.Row(
                 [month_dropdown(self.month, self._set_month),
-                 year_dropdown(self.year, self._set_year)],
-                spacing=12,
+                 year_dropdown(self.year, self._set_year),
+                 switch_row("За всё время", self.all_time, self._toggle_all_time)],
+                spacing=12, wrap=True,
             )
         )
 
         total_card = card(
-            ft.Text("Общие расходы за период", size=13, color=COLORS["text_secondary"]),
+            ft.Text("Общие расходы " + ("за всё время" if self.all_time else "за период"),
+                    size=13, color=COLORS["text_secondary"]),
             money_text(summary["total"], size=28),
             hint(f"{summary['count']} "
                  f"{pluralize_ru(summary['count'], 'запись', 'записи', 'записей')}"),
@@ -46,12 +56,19 @@ class AnalyticsView(View):
         blocks: list[ft.Control] = [picker, total_card,
                                     section_title("Тренд по месяцам"), self._trend_chart(trend)]
 
-        blocks.append(section_title("Расходы по категориям"))
+        blocks.append(section_title(
+            "Расходы по категориям — за всё время" if self.all_time
+            else "Расходы по категориям"
+        ))
         if not summary["categories"]:
             blocks.append(card(empty_state("Нет данных для отображения")))
         else:
             blocks.append(self._categories(summary["categories"], summary["total"]))
         return blocks
+
+    def _toggle_all_time(self, e) -> None:
+        self.all_time = e.control.value
+        self.reload()
 
     def _trend_chart(self, months: list[dict]) -> ft.Container:
         peak = max((m["total"] for m in months), default=0) or 1

@@ -139,6 +139,17 @@ class TestAnalytics:
             (10, 2024), (11, 2024), (12, 2024), (1, 2025), (2, 2025)
         ]
 
+    def test_all_time_summary_expands_recurring_monthly(self, service: FinanceService):
+        # Повтор с мая 2025 по «сегодня» (тест идёт 2026-09) — за период
+        # считается один раз, за всё время должен развернуться помесячно.
+        service.create_expense(name="Подписка", amount=500, half=1, month=5, year=2025,
+                               is_recurring=True)
+        one_month = service.analytics_summary(5, 2025)
+        all_time = service.analytics_summary()  # None, None
+        assert one_month["total"] == 500
+        assert all_time["total"] >= 500 * 16          # ≥16 месяцев май-2025..сен-2026
+        assert all_time["count"] == all_time["total"] // 500
+
 
 class TestBalance:
     def test_balance_subtracts_expenses(self, service: FinanceService):

@@ -75,6 +75,7 @@ jobs:
           mkdir -p out
           cp "${{ matrix.artifact }}" "out/${{ matrix.asset }}"
           cp version.txt "out/version.txt"
+          ( cd out && sha256sum "${{ matrix.asset }}" | tee "${{ matrix.asset }}.sha256" )
 
       - uses: actions/upload-artifact@v4
         with:
@@ -87,6 +88,7 @@ jobs:
         with:
           files: |
             out/${{ matrix.asset }}
+            out/${{ matrix.asset }}.sha256
             out/version.txt
           fail_on_unmatched_files: false
           generate_release_notes: true
