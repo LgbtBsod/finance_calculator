@@ -32,14 +32,9 @@ for _stream in (sys.stdout, sys.stderr):
 APP_DIR = Path(__file__).resolve().parent
 NAME = "FinanceCalculator"
 
-BUILD_DEPS = [
-    "pyinstaller>=6.10",
-    "flet[web]==0.86.5",
-    "packaging>=23.0",
-    "certifi>=2024.2.2",
-    "work-calendar>=1.1",
-    "pdfplumber>=0.10.0",
-]
+# Рантайм-зависимости — единым списком в requirements.txt (SSOT). Здесь
+# только то, что нужно исключительно для сборки.
+BUILD_ONLY_DEPS = ["pyinstaller>=6.10,<7"]
 
 
 def info(m):
@@ -52,7 +47,11 @@ def err(m):
 
 def install_deps() -> None:
     info("Installing / verifying build dependencies...")
-    r = subprocess.run([sys.executable, "-m", "pip", "install", *BUILD_DEPS], timeout=1200)
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install",
+         "-r", str(APP_DIR / "requirements.txt"), *BUILD_ONLY_DEPS],
+        timeout=1200,
+    )
     if r.returncode != 0:
         err("Dependency install failed.")
         sys.exit(1)

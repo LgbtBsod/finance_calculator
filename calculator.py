@@ -23,7 +23,33 @@ from models import (
 __all__ = [
     "SalaryCalculator",
     "BirthdayService",
+    "progressive_ndfl",
 ]
+
+# Прогрессивная шкала НДФЛ РФ с 2025 (годовой накопленный доход -> предельная
+# ставка сверх порога). Ст. 224 НК РФ в ред. с 01.01.2025.
+_NDFL_BRACKETS_2025: tuple[tuple[float, float], ...] = (
+    (0.0, 0.13),
+    (2_400_000.0, 0.15),
+    (5_000_000.0, 0.18),
+    (20_000_000.0, 0.20),
+    (50_000_000.0, 0.22),
+)
+
+
+def progressive_ndfl(annual_gross: float) -> float:
+    """НДФЛ с годового дохода ``annual_gross`` по прогрессивной шкале 2025."""
+    tax = 0.0
+    for i, (threshold, rate) in enumerate(_NDFL_BRACKETS_2025):
+        if annual_gross <= threshold:
+            break
+        upper = (
+            _NDFL_BRACKETS_2025[i + 1][0]
+            if i + 1 < len(_NDFL_BRACKETS_2025)
+            else float("inf")
+        )
+        tax += (min(annual_gross, upper) - threshold) * rate
+    return tax
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -57,7 +83,16 @@ class SalaryCalculator:
         method = self._get("salary_calculation_method") or "proportional"
 
         # Полный оклад за месяц после налога и коэффициента (норма).
-        net = base * kef * (1.0 - tax / 100.0)
+        gross = base * kef
+        if self._get("tax_progressive") == "true":
+            # Предельный налог именно этого месяца: НДФЛ с дохода нарастающим
+            # итогом ПО этот месяц минус НДФЛ по ПРЕДЫДУЩИЙ (оклад считаем
+            # постоянным в течение года).
+            ytd_now = progressive_ndfl(gross * month)
+            ytd_before = progressive_ndfl(gross * (month - 1))
+            net = gross - (ytd_now - ytd_before)
+        else:
+            net = gross * (1.0 - tax / 100.0)
 
         wd_h1 = wd_h2 = wd_total = None
         cutoff_day = None

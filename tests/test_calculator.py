@@ -16,7 +16,7 @@ from datetime import date
 
 import pytest
 
-from calculator import SalaryCalculator
+from calculator import SalaryCalculator, progressive_ndfl
 from database import DatabaseManager
 from models import DayKind
 
@@ -95,6 +95,51 @@ class TestProportionalMethod:
         result = calculator.calculate(2026, 8)
 
         assert result.net_salary == pytest.approx(100000 * 1.2 * 0.87)
+
+
+class TestProgressiveNdfl:
+    def test_below_first_threshold_is_flat_13(self):
+        assert progressive_ndfl(2_400_000) == pytest.approx(2_400_000 * 0.13)
+        assert progressive_ndfl(1_000_000) == pytest.approx(130_000)
+
+    def test_second_bracket_marginal(self):
+        # 2.4М по 13% + 100k по 15%
+        assert progressive_ndfl(2_500_000) == pytest.approx(2_400_000 * 0.13 + 100_000 * 0.15)
+
+    def test_top_bracket(self):
+        got = progressive_ndfl(60_000_000)
+        expected = (
+            2_400_000 * 0.13
+            + (5_000_000 - 2_400_000) * 0.15
+            + (20_000_000 - 5_000_000) * 0.18
+            + (50_000_000 - 20_000_000) * 0.20
+            + (60_000_000 - 50_000_000) * 0.22
+        )
+        assert got == pytest.approx(expected)
+
+    def test_calculator_progressive_matches_flat_13_for_low_earner(self, db: DatabaseManager):
+        # 100k/мес * 12 = 1.2М/год -> целиком в полосе 13%, результат как при плоской
+        db.set_setting("base_salary", "100000")
+        db.set_setting("kef", "1.0")
+        db.set_setting("tax_progressive", "true")
+        db.set_setting("salary_calculation_method", "proportional")
+        calc = SalaryCalculator(get_setting=db.get_setting, vacations=db, calendar_reader=None)
+
+        assert calc.calculate(2025, 6).net_salary == pytest.approx(87_000.0)
+
+    def test_calculator_progressive_bites_high_earner_mid_year(self, db: DatabaseManager):
+        # 300k/мес: к августу накоплено ровно 2.4М (13%), с сентября — 15%
+        db.set_setting("base_salary", "300000")
+        db.set_setting("kef", "1.0")
+        db.set_setting("tax_progressive", "true")
+        db.set_setting("salary_calculation_method", "proportional")
+        calc = SalaryCalculator(get_setting=db.get_setting, vacations=db, calendar_reader=None)
+
+        gross = 300_000.0
+        assert calc.calculate(2025, 8).net_salary == pytest.approx(gross * 0.87)  # ещё 13%
+        sep_tax = progressive_ndfl(gross * 9) - progressive_ndfl(gross * 8)
+        assert calc.calculate(2025, 9).net_salary == pytest.approx(gross - sep_tax)
+        assert sep_tax == pytest.approx(gross * 0.15)   # весь сентябрь уже по 15%
 
 
 class TestCustomProportionsMethod:

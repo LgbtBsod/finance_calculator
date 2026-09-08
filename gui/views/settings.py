@@ -25,6 +25,10 @@ class SettingsView(View):
 
         base = text_field("Базовая зарплата, ₽", str(s["baseSalary"]), keyboard="number")
         tax = text_field("Налог, %", str(s["taxRate"]), keyboard="number")
+        tax_progressive = ft.Switch(
+            label="Прогрессивная шкала НДФЛ 2025 (13→22%, поле «Налог, %» игнорируется)",
+            value=s["taxProgressive"], active_color=COLORS["accent"],
+        )
         kef = text_field("Коэффициент (КЕФ)", str(s["kef"]), keyboard="number")
         cutoff = text_field("День отсечения аванса", str(s["advanceCutoffDay"]), keyboard="number")
         std_hours = text_field("Стандартные часы", str(s["standardHours"]), keyboard="number")
@@ -50,6 +54,7 @@ class SettingsView(View):
                 updates = {
                     "baseSalary": num(base),
                     "taxRate": num(tax),
+                    "taxProgressive": tax_progressive.value,
                     "kef": num(kef),
                     "advanceCutoffDay": num(cutoff, int),
                     "standardHours": num(std_hours, int),
@@ -70,7 +75,7 @@ class SettingsView(View):
         salary_card = card(
             ft.Column(
                 [
-                    base, tax, kef,
+                    base, tax, tax_progressive, kef,
                     ft.Row([cutoff, std_hours], spacing=10),
                     method,
                     ft.Row([first_ratio, second_ratio], spacing=10),

@@ -99,6 +99,8 @@ class SettingSpec:
 SETTINGS: tuple[SettingSpec, ...] = (
     SettingSpec("baseSalary", "base_salary", 100000.0, "float"),
     SettingSpec("taxRate", "tax_rate", 13.0, "float"),
+    # Прогрессивная шкала НДФЛ 2025 вместо плоской taxRate.
+    SettingSpec("taxProgressive", "tax_progressive", False, "bool"),
     SettingSpec("kef", "kef", 1.0, "float"),
     SettingSpec("standardHours", "standard_hours", 40, "int"),
     SettingSpec("advanceCutoffDay", "advance_cutoff_day", 15, "int"),
