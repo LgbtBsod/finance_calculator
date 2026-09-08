@@ -239,6 +239,82 @@ class TestRecurringExpenseProjection:
         assert db.get_expenses(month=8, year=2026)[0]["recurring_until"] == "2026-12-31"
 
 
+class TestIncome:
+    """Доходы — зеркало расходов без групп: та же проекция повторяющихся
+    строк вперёд (см. TestRecurringExpenseProjection)."""
+
+    def test_add_and_filter_by_month_year(self, db: DatabaseManager):
+        db.add_income("Фриланс", 30000.0, half=1, month=8, year=2026)
+        db.add_income("Аренда", 15000.0, half=2, month=9, year=2026)
+
+        august = db.get_income(month=8, year=2026)
+        assert len(august) == 1
+        assert august[0]["name"] == "Фриланс"
+
+    def test_add_returns_the_new_rowid(self, db: DatabaseManager):
+        iid = db.add_income("Фриланс", 30000.0, half=1, month=8, year=2026)
+        assert iid == db.get_income()[0]["id"]
+
+    def test_get_all_when_no_filter_returns_raw_rows(self, db: DatabaseManager):
+        db.add_income("A", 1.0, half=1, month=1, year=2026)
+        db.add_income("B", 2.0, half=1, month=2, year=2026, is_recurring=True)
+        rows = db.get_income()
+        assert len(rows) == 2
+        assert (rows[1]["month"], rows[1]["year"]) == (2, 2026)  # без проекции
+
+    def test_recurring_income_projects_into_later_month(self, db: DatabaseManager):
+        db.add_income("Аренда", 15000.0, half=1, month=8, year=2026, is_recurring=True)
+
+        projected = db.get_income(month=11, year=2026)
+
+        assert len(projected) == 1
+        assert (projected[0]["month"], projected[0]["year"]) == (11, 2026)
+
+    def test_non_recurring_income_does_not_project(self, db: DatabaseManager):
+        db.add_income("Разовая премия", 50000.0, half=1, month=8, year=2026)
+
+        assert db.get_income(month=9, year=2026) == []
+
+    def test_recurring_until_stops_projection_after_that_month(self, db: DatabaseManager):
+        db.add_income(
+            "Аренда", 15000.0, half=1, month=1, year=2026,
+            is_recurring=True, recurring_until="2026-03-15",
+        )
+
+        assert len(db.get_income(month=3, year=2026)) == 1
+        assert db.get_income(month=4, year=2026) == []
+
+    def test_update_partial_fields(self, db: DatabaseManager):
+        db.add_income("Фриланс", 30000.0, half=1, month=8, year=2026)
+        iid = db.get_income()[0]["id"]
+
+        db.update_income(iid, amount=45000.0)
+
+        updated = db.get_income()[0]
+        assert updated["amount"] == 45000.0
+        assert updated["name"] == "Фриланс"  # не изменилось
+
+    def test_update_missing_income_raises(self, db: DatabaseManager):
+        with pytest.raises(ValueError):
+            db.update_income(9999, name="x")
+
+    def test_update_can_set_and_then_clear_recurring_until(self, db: DatabaseManager):
+        db.add_income("Аренда", 15000.0, half=1, month=8, year=2026, is_recurring=True)
+        iid = db.get_income()[0]["id"]
+
+        db.update_income(iid, recurring_until="2026-09-30")
+        assert db.get_income(month=10, year=2026) == []
+
+        db.update_income(iid, recurring_until=None)  # явная очистка — снова бессрочно
+        assert len(db.get_income(month=10, year=2026)) == 1
+
+    def test_delete(self, db: DatabaseManager):
+        db.add_income("Фриланс", 30000.0, half=1, month=8, year=2026)
+        iid = db.get_income()[0]["id"]
+        db.delete_income(iid)
+        assert db.get_income() == []
+
+
 class TestVacations:
     def test_add_defaults_range_to_payout_date(self, db: DatabaseManager):
         db.add_vacation(total_amount=10000.0, payout_date="2025-07-04")
@@ -491,6 +567,36 @@ class TestDebts:
         debt_id = db.create_debt("X", 1000.0, month=1, year=2026)
         db.delete_debt(debt_id)
         assert db.get_debts() == []
+
+    def test_planned_payment_fields_default_to_zero_and_second_half(self, db: DatabaseManager):
+        db.create_debt("X", 1000.0, month=1, year=2026)
+        d = db.get_debts()[0]
+        assert d["monthly_payment"] == 0.0
+        assert d["payment_half"] == 2
+
+    def test_create_with_planned_payment(self, db: DatabaseManager):
+        db.create_debt("Кредит", 100000.0, month=1, year=2026,
+                       monthly_payment=8000.0, payment_half=1)
+        d = db.get_debts()[0]
+        assert d["monthly_payment"] == 8000.0
+        assert d["payment_half"] == 1
+
+    def test_update_debt_changes_only_given_fields(self, db: DatabaseManager):
+        debt_id = db.create_debt("Кредит", 100000.0, month=1, year=2026)
+
+        db.update_debt(debt_id, monthly_payment=5000.0, payment_half=1)
+
+        d = db.get_debts()[0]
+        assert d["monthly_payment"] == 5000.0
+        assert d["payment_half"] == 1
+        assert d["title"] == "Кредит"  # не тронут
+        assert d["total_amount"] == 100000.0
+
+    def test_update_debt_with_no_fields_is_a_noop(self, db: DatabaseManager):
+        debt_id = db.create_debt("Кредит", 100000.0, month=1, year=2026,
+                                 monthly_payment=3000.0)
+        db.update_debt(debt_id)
+        assert db.get_debts()[0]["monthly_payment"] == 3000.0
 
 
 class TestBackup:

@@ -30,6 +30,7 @@ __all__ = [
     "VacationReader",
     # TypedDict'ы (структура строк БД)
     "ExpenseRow",
+    "IncomeRow",
     "BirthdayRow",
     "VacationRow",
     "CorrectionRow",
@@ -171,6 +172,17 @@ class ExpenseRow(TypedDict):
     year: int
     is_recurring: bool
     group_id: str | None
+    recurring_until: str | None
+
+
+class IncomeRow(TypedDict):
+    id: int
+    name: str
+    amount: float
+    half: int
+    month: int
+    year: int
+    is_recurring: bool
     recurring_until: str | None
 
 

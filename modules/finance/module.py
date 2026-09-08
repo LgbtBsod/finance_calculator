@@ -62,6 +62,26 @@ class FinanceModule(Module):
     def _compute_balance(self, month: int, year: int) -> dict:
         r = self.k.request("calculator", "balance", year=year, month=month)
         s = r["salary"]
+
+        income = self.k.request("db", "get_income", month=month, year=year)
+        inc_h1 = sum(i["amount"] for i in income if i["half"] == 1)
+        inc_h2 = sum(i["amount"] for i in income if i["half"] == 2)
+
+        # Плановые ежемесячные платежи по непогашенным долгам.
+        debts = self.k.request("db", "get_debts")
+        pay_h1 = sum(
+            d["monthly_payment"] for d in debts
+            if d.get("monthly_payment", 0) > 0
+            and d.get("remaining_amount", d["total_amount"]) > 0
+            and d.get("payment_half", 2) == 1
+        )
+        pay_h2 = sum(
+            d["monthly_payment"] for d in debts
+            if d.get("monthly_payment", 0) > 0
+            and d.get("remaining_amount", d["total_amount"]) > 0
+            and d.get("payment_half", 2) == 2
+        )
+
         return {
             "month": month,
             "year": year,
@@ -73,10 +93,14 @@ class FinanceModule(Module):
             "totalAccrued": s["total_accrued"],
             "toPayHalf1": s["to_pay_half_1"],
             "toPayHalf2": s["to_pay_half_2"],
+            "incomeHalf1": inc_h1,
+            "incomeHalf2": inc_h2,
             "expensesHalf1": r["expenses_h1"],
             "expensesHalf2": r["expenses_h2"],
-            "balanceHalf1": r["balance_h1"],
-            "balanceHalf2": r["balance_h2"],
+            "debtPaymentHalf1": pay_h1,
+            "debtPaymentHalf2": pay_h2,
+            "balanceHalf1": r["balance_h1"] + inc_h1 - pay_h1,
+            "balanceHalf2": r["balance_h2"] + inc_h2 - pay_h2,
             "calculationMethod": s["calculation_method"],
             "workingDaysHalf1": s["working_days_half_1"],
             "workingDaysHalf2": s["working_days_half_2"],

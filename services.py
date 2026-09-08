@@ -146,6 +146,57 @@ class FinanceService:
     def delete_expense(self, item_id: str) -> None:
         self.k.request("db", "delete_expense", eid=int(item_id))
 
+    # ═══════════════════════ income ═══════════════════════
+
+    @staticmethod
+    def _income_out(i: dict) -> dict:
+        return {
+            "id": str(i["id"]),
+            "name": i["name"],
+            "amount": i["amount"],
+            "half": i.get("half", 1),
+            "isRecurring": i.get("is_recurring", False),
+            "recurringUntil": i.get("recurring_until"),
+            "month": i["month"],
+            "year": i["year"],
+        }
+
+    def list_income(self, month: int | None = None, year: int | None = None) -> list[dict]:
+        return [self._income_out(i) for i in self.k.request("db", "get_income", month=month, year=year)]
+
+    def create_income(
+        self, *, name: str, amount: float, half: int, month: int, year: int,
+        is_recurring: bool = False, recurring_until: str | None = None,
+    ) -> dict:
+        if recurring_until:
+            validate_iso_date(recurring_until, "recurringUntil")
+        res = self.k.request(
+            "db", "add_income", name=name, amount=amount, half=half, month=month, year=year,
+            is_recurring=is_recurring, recurring_until=recurring_until,
+        )
+        return self._income_out({
+            "id": res["id"], "name": name, "amount": amount, "half": half,
+            "is_recurring": is_recurring, "recurring_until": recurring_until,
+            "month": month, "year": year,
+        })
+
+    def update_income(
+        self, item_id: str, *, name: str | None = None, amount: float | None = None,
+        half: int | None = None, is_recurring: bool | None = None,
+        recurring_until: Any = _UNSET,
+    ) -> dict | None:
+        if isinstance(recurring_until, str) and recurring_until:
+            validate_iso_date(recurring_until, "recurringUntil")
+        payload: dict = {"iid": int(item_id), "name": name, "amount": amount, "half": half,
+                         "is_recurring": is_recurring}
+        if recurring_until is not _UNSET:
+            payload["recurring_until"] = recurring_until
+        i = self.k.request("db", "update_income", **payload)
+        return self._income_out(i) if i else None
+
+    def delete_income(self, item_id: str) -> None:
+        self.k.request("db", "delete_income", iid=int(item_id))
+
     # ═══════════════════════ vacations ═══════════════════════
 
     @staticmethod
@@ -272,24 +323,36 @@ class FinanceService:
             "year": d["year"],
             "repaidAmount": d.get("repaid_amount", 0.0),
             "remainingAmount": d.get("remaining_amount", d["total_amount"]),
+            "monthlyPayment": d.get("monthly_payment", 0.0),
+            "paymentHalf": d.get("payment_half", 2),
         }
 
     def list_debts(self) -> list[dict]:
         return [self._debt_out(d) for d in self.k.request("db", "get_debts")]
 
     def create_debt(
-        self, *, title: str, total_amount: float,
-        month: int | None = None, year: int | None = None,
+        self, *, title: str, total_amount: float, monthly_payment: float = 0.0,
+        payment_half: int = 2, month: int | None = None, year: int | None = None,
     ) -> dict:
         from datetime import date
 
         today = date.today()
         res = self.k.request(
             "db", "create_debt", title=title, total_amount=total_amount,
+            monthly_payment=monthly_payment, payment_half=payment_half,
             month=month or today.month, year=year or today.year,
         )
         created = next((d for d in self.k.request("db", "get_debts") if d["id"] == res["id"]), None)
         return self._debt_out(created) if created else {}
+
+    def update_debt(
+        self, debt_id: str, *, title: str | None = None, total_amount: float | None = None,
+        monthly_payment: float | None = None, payment_half: int | None = None,
+    ) -> None:
+        self.k.request(
+            "db", "update_debt", debt_id=int(debt_id), title=title, total_amount=total_amount,
+            monthly_payment=monthly_payment, payment_half=payment_half,
+        )
 
     def delete_debt(self, debt_id: str) -> None:
         self.k.request("db", "delete_debt", debt_id=int(debt_id))

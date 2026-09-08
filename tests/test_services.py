@@ -41,6 +41,49 @@ class TestExpenseGroups:
         assert rows[0]["groupId"] is None
 
 
+class TestIncome:
+    def test_crud_and_recurring(self, service: FinanceService):
+        i = service.create_income(name="Фриланс", amount=30000, half=1, month=3, year=2025,
+                                  is_recurring=True)
+        assert i["amount"] == 30000 and i["isRecurring"] is True
+        assert len(service.list_income(3, 2025)) == 1
+        assert len(service.list_income(9, 2025)) == 1  # спроецирован вперёд
+
+        service.update_income(i["id"], amount=45000)
+        assert service.list_income(3, 2025)[0]["amount"] == 45000
+        service.delete_income(i["id"])
+        assert service.list_income() == []
+
+    def test_income_adds_to_balance(self, service: FinanceService):
+        service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
+        service.create_income(name="Аренда", amount=20000, half=1, month=6, year=2025)
+        b = service.balance(6, 2025)
+        assert b["incomeHalf1"] == 20000
+        assert b["balanceHalf1"] == pytest.approx(b["toPayHalf1"] + 20000)
+
+
+class TestDebtMonthlyPayment:
+    def test_planned_payment_deducted_from_balance(self, service: FinanceService):
+        service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
+        service.create_debt(title="Кредит", total_amount=100000,
+                            monthly_payment=8000, payment_half=2)
+        b = service.balance(6, 2025)
+        assert b["debtPaymentHalf2"] == 8000
+        assert b["balanceHalf2"] == pytest.approx(b["toPayHalf2"] - 8000)
+
+    def test_no_deduction_when_debt_repaid(self, service: FinanceService):
+        d = service.create_debt(title="X", total_amount=5000, monthly_payment=1000)
+        service.add_repayment(d["id"], amount=5000, when="2025-06-01")
+        b = service.balance(6, 2025)
+        assert b["debtPaymentHalf2"] == 0  # долг закрыт — платёж не вычитается
+
+    def test_update_debt(self, service: FinanceService):
+        d = service.create_debt(title="X", total_amount=5000)
+        service.update_debt(d["id"], monthly_payment=500, payment_half=1)
+        upd = service.list_debts()[0]
+        assert upd["monthlyPayment"] == 500 and upd["paymentHalf"] == 1
+
+
 class TestExpenses:
     def test_partial_update_keeps_untouched_fields(self, service: FinanceService):
         g = service.create_expense_group(name="G", color="#010203")

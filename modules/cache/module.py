@@ -19,12 +19,13 @@ _DEFAULT_TTL = 300.0
 # entity из db:changed -> какие неймспейсы кэша чистить.
 _ENTITY_NAMESPACES: dict[str, tuple[str, ...]] = {
     "expenses": ("balance", "analytics"),
+    "income": ("balance",),
     "expense_groups": ("analytics",),
     "vacations": ("balance",),
     "settings": ("balance", "analytics", "settings"),
+    "debts": ("balance",),  # плановый ежемесячный платёж вычитается из баланса
     "corrections": (),  # календарь чистит отдельное событие calendar:changed
     "birthdays": (),
-    "debts": (),
 }
 
 

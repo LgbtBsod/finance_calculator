@@ -17,6 +17,7 @@ from .views.balance import BalanceView
 from .views.birthdays import BirthdaysView
 from .views.debts import DebtsView
 from .views.expenses import ExpensesView, GroupsView
+from .views.income import IncomeView
 from .views.settings import SettingsView
 from .views.vacations import VacationsView
 
@@ -24,6 +25,7 @@ log = logging.getLogger(__name__)
 
 _NAV: list[tuple[str, str, object, object]] = [
     ("balance", "Баланс", ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED, ft.Icons.ACCOUNT_BALANCE_WALLET),
+    ("income", "Доходы", ft.Icons.TRENDING_UP_OUTLINED, ft.Icons.TRENDING_UP),
     ("expenses", "Расходы", ft.Icons.RECEIPT_LONG_OUTLINED, ft.Icons.RECEIPT_LONG),
     ("groups", "Группы", ft.Icons.FOLDER_OUTLINED, ft.Icons.FOLDER),
     ("vacations", "Отпускные", ft.Icons.BEACH_ACCESS_OUTLINED, ft.Icons.BEACH_ACCESS),
@@ -57,6 +59,7 @@ class FinanceApp:
 
         self._views = {
             "balance": BalanceView(self),
+            "income": IncomeView(self),
             "expenses": ExpensesView(self),
             "groups": GroupsView(self),
             "vacations": VacationsView(self),

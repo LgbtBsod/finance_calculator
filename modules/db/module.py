@@ -18,6 +18,7 @@ _READS = {
     "get_setting": "get_setting",
     "get_settings_bundle": "get_settings_bundle",
     "get_expenses": "get_expenses",
+    "get_income": "get_income",
     "get_expense_groups": "get_expense_groups",
     "get_expense_group": "get_expense_group",
     "get_vacations": "get_vacations",
@@ -52,6 +53,10 @@ class DBModule(Module):
             "add_expense": self._add_expense,
             "update_expense": self._update_expense,
             "delete_expense": self._delete_expense,
+            # income
+            "add_income": self._add_income,
+            "update_income": self._update_income,
+            "delete_income": self._delete_income,
             # expense groups
             "create_expense_group": self._create_group,
             "update_expense_group": self._update_group,
@@ -65,6 +70,7 @@ class DBModule(Module):
             "delete_birthday": self._delete_birthday,
             # debts
             "create_debt": self._create_debt,
+            "update_debt": self._update_debt,
             "delete_debt": self._delete_debt,
             "add_debt_repayment": self._add_repayment,
             "delete_debt_repayment": self._delete_repayment,
@@ -105,6 +111,25 @@ class DBModule(Module):
     def _delete_expense(self, eid: int) -> None:
         self.db.delete_expense(eid)
         self._changed("expenses")
+
+    # ── income ───────────────────────────────────────────────
+
+    def _add_income(self, **kw: Any) -> dict:
+        new_id = self.db.add_income(**kw)
+        self._changed("income")
+        return {"id": new_id}
+
+    def _update_income(self, iid: int, **kw: Any) -> dict | None:
+        try:
+            self.db.update_income(iid=iid, **kw)
+        except ValueError as e:
+            raise ValidationError("Доход не найден — возможно, удалён") from e
+        self._changed("income")
+        return next((i for i in self.db.get_income() if i["id"] == iid), None)
+
+    def _delete_income(self, iid: int) -> None:
+        self.db.delete_income(iid)
+        self._changed("income")
 
     # ── expense groups ───────────────────────────────────────
 
@@ -156,6 +181,10 @@ class DBModule(Module):
         debt_id = self.db.create_debt(**kw)
         self._changed("debts")
         return {"id": debt_id}
+
+    def _update_debt(self, debt_id: int, **kw: Any) -> None:
+        self.db.update_debt(debt_id, **kw)
+        self._changed("debts")
 
     def _delete_debt(self, debt_id: int) -> None:
         self.db.delete_debt(debt_id)

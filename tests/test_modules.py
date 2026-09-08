@@ -30,6 +30,33 @@ class TestDBModule:
         assert req(kernel, "db", "get_expenses") == []
         assert "expenses" in events and "expense_groups" in events
 
+    def test_income_crud_and_events(self, kernel):
+        events = []
+        kernel.view("t").subscribe("db:changed", lambda entity, **_: events.append(entity))
+
+        res = req(kernel, "db", "add_income", name="Аренда", amount=15000, half=1,
+                  month=3, year=2025, is_recurring=True, recurring_until=None)
+        iid = res["id"]
+        assert len(req(kernel, "db", "get_income", month=9, year=2025)) == 1  # спроецирован
+        upd = req(kernel, "db", "update_income", iid=iid, amount=20000)
+        assert upd["amount"] == 20000
+        req(kernel, "db", "delete_income", iid=iid)
+        assert req(kernel, "db", "get_income") == []
+        assert events.count("income") == 3
+
+    def test_update_missing_income_is_user_facing(self, kernel):
+        from core.errors import UserFacingError
+
+        with pytest.raises(UserFacingError):
+            req(kernel, "db", "update_income", iid=999999, amount=1)
+
+    def test_debt_planned_payment_roundtrip(self, kernel):
+        res = req(kernel, "db", "create_debt", title="Кредит", total_amount=100000,
+                  month=1, year=2026, monthly_payment=8000, payment_half=1)
+        req(kernel, "db", "update_debt", debt_id=res["id"], payment_half=2)
+        d = req(kernel, "db", "get_debts")[0]
+        assert d["monthly_payment"] == 8000 and d["payment_half"] == 2
+
     def test_backup_rejects_memory(self, kernel):
         from core.errors import ValidationError
 
@@ -99,6 +126,30 @@ class TestFinanceModule:
             updates={"baseSalary": 999999, "taxRate": 0, "kef": 1.0})
         b2 = req(kernel, "finance", "balance", month=7, year=2025)
         assert b2["netSalary"] == 999999 and b2 != b1  # пересчитано, не из кэша
+
+    def test_income_added_to_balance_half(self, kernel):
+        b0 = req(kernel, "finance", "balance", month=7, year=2025)
+        req(kernel, "db", "add_income", name="Аренда", amount=20000, half=1,
+            month=7, year=2025, is_recurring=False, recurring_until=None)
+        b1 = req(kernel, "finance", "balance", month=7, year=2025)
+        assert b1["incomeHalf1"] == 20000  # инвалидация кэша по db:changed
+        assert b1["balanceHalf1"] == pytest.approx(b0["balanceHalf1"] + 20000)
+
+    def test_planned_debt_payment_deducted_from_balance_half(self, kernel):
+        b0 = req(kernel, "finance", "balance", month=7, year=2025)
+        req(kernel, "db", "create_debt", title="Кредит", total_amount=100000,
+            month=1, year=2025, monthly_payment=8000, payment_half=2)
+        b1 = req(kernel, "finance", "balance", month=7, year=2025)
+        assert b1["debtPaymentHalf2"] == 8000
+        assert b1["balanceHalf2"] == pytest.approx(b0["balanceHalf2"] - 8000)
+
+    def test_repaid_debt_stops_deducting_planned_payment(self, kernel):
+        res = req(kernel, "db", "create_debt", title="X", total_amount=5000,
+                  month=1, year=2025, monthly_payment=1000, payment_half=2)
+        req(kernel, "db", "add_debt_repayment", debt_id=res["id"], amount=5000,
+            date="2025-01-05", note=None)
+        b = req(kernel, "finance", "balance", month=7, year=2025)
+        assert b["debtPaymentHalf2"] == 0
 
 
 class TestUpdaterModule:

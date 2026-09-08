@@ -34,11 +34,13 @@ class BalanceView(View):
         )
 
         half1 = _half_card(
-            "1-я половина", b["toPayHalf1"], b["expensesHalf1"], b["balanceHalf1"],
+            "1-я половина", b["toPayHalf1"], b.get("incomeHalf1", 0), b["expensesHalf1"],
+            b.get("debtPaymentHalf1", 0), b["balanceHalf1"],
             b.get("payoutDate1"), b.get("payoutDate1Nominal"), COLORS["success_bg"],
         )
         half2 = _half_card(
-            "2-я половина", b["toPayHalf2"], b["expensesHalf2"], b["balanceHalf2"],
+            "2-я половина", b["toPayHalf2"], b.get("incomeHalf2", 0), b["expensesHalf2"],
+            b.get("debtPaymentHalf2", 0), b["balanceHalf2"],
             b.get("payoutDate2"), b.get("payoutDate2Nominal"), COLORS["warning_bg"],
         )
 
@@ -105,8 +107,8 @@ def _stat(label: str, value: float) -> ft.Column:
 
 
 def _half_card(
-    label: str, to_pay: float, expenses: float, balance: float,
-    payout_date: str | None, nominal: str | None, bg: str,
+    label: str, to_pay: float, income: float, expenses: float, debt_payment: float,
+    balance: float, payout_date: str | None, nominal: str | None, bg: str,
 ) -> ft.Container:
     deficit = balance < 0
     lines = [
@@ -119,7 +121,12 @@ def _half_card(
         if nominal and nominal != payout_date:
             text += f"  (перенесено с {format_date_long_ru(nominal)})"
         lines.append(hint(text))
-    lines.append(kv_row("Расходы", format_currency(expenses)))
+    if income:
+        lines.append(kv_row("+ Прочий доход", format_currency(income),
+                            value_color=COLORS["success"]))
+    lines.append(kv_row("− Расходы", format_currency(expenses)))
+    if debt_payment:
+        lines.append(kv_row("− Платёж по долгам", format_currency(debt_payment)))
     lines.append(
         ft.Text(
             ("Дефицит " if deficit else "Остаток ") + format_currency(abs(balance)),

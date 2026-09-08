@@ -10,6 +10,7 @@ from ..widgets import (
     card,
     card_grid,
     confirm,
+    dropdown,
     empty_state,
     hint,
     icon_button,
@@ -42,6 +43,8 @@ class DebtsView(View):
                 [
                     ft.Text(d["title"], size=15, weight=ft.FontWeight.W_600,
                             color=COLORS["text"], expand=True),
+                    icon_button(ft.Icons.EDIT_OUTLINED, lambda e, dd=d: self._open_form(dd),
+                                tooltip="Изменить"),
                     icon_button(ft.Icons.DELETE_OUTLINE, lambda e, dd=d: self._delete(dd),
                                 tooltip="Удалить", color=COLORS["danger"]),
                 ],
@@ -53,6 +56,12 @@ class DebtsView(View):
             if d["repaidAmount"] > 0:
                 sub += f" · погашено {format_currency(d['repaidAmount'])}"
             rows.append(hint(sub))
+            if d.get("monthlyPayment", 0) > 0:
+                rows.append(hint(
+                    f"Плановый платёж {format_currency(d['monthlyPayment'])}/мес "
+                    f"({'1-я' if d.get('paymentHalf', 2) == 1 else '2-я'} половина) — "
+                    f"вычитается из баланса"
+                ))
         else:
             rows.append(ft.Text("Погашено", size=17, weight=ft.FontWeight.BOLD,
                                 color=COLORS["success"]))
@@ -130,10 +139,19 @@ class DebtsView(View):
             lambda: self.guard(lambda: self.svc.delete_repayment(r["id"]), ok="Платёж удалён"),
         )
 
-    def _open_form(self) -> None:
+    def _open_form(self, d: dict | None = None) -> None:
         page = self.app.page
-        title = text_field("Название долга", hint_text="Например, кредит")
-        amount = text_field("Сумма долга, ₽", keyboard="number")
+        editing = d is not None
+        title = text_field("Название долга", d["title"] if editing else "",
+                           hint_text="Например, кредит")
+        amount = text_field("Сумма долга, ₽", str(d["totalAmount"]) if editing else "",
+                            keyboard="number")
+        monthly = text_field("Плановый платёж, ₽/мес (необязательно)",
+                             str(d["monthlyPayment"]) if editing and d["monthlyPayment"] else "",
+                             keyboard="number")
+        half_dd = dropdown("Половина месяца для платежа",
+                           [("1", "1-я половина"), ("2", "2-я половина")],
+                           str(d["paymentHalf"]) if editing else "2")
 
         def save(e):
             try:
@@ -144,15 +162,27 @@ class DebtsView(View):
             if not (title.value or "").strip() or amt <= 0:
                 self.toast("Заполните название и сумму долга", error=True)
                 return
+            mp_raw = (monthly.value or "").strip().replace(",", ".")
+            mp = float(mp_raw) if mp_raw else 0.0
             page.pop_dialog()
-            self.guard(
-                lambda: self.svc.create_debt(title=title.value.strip(), total_amount=amt),
-                ok="Долг добавлен",
-            )
+            if editing:
+                self.guard(
+                    lambda: self.svc.update_debt(
+                        d["id"], title=title.value.strip(), total_amount=amt,
+                        monthly_payment=mp, payment_half=int(half_dd.value)),
+                    ok="Долг обновлён",
+                )
+            else:
+                self.guard(
+                    lambda: self.svc.create_debt(
+                        title=title.value.strip(), total_amount=amt,
+                        monthly_payment=mp, payment_half=int(half_dd.value)),
+                    ok="Долг добавлен",
+                )
 
         show_modal(
-            page, "Новый долг",
-            ft.Column([title, amount], tight=True, spacing=10),
+            page, "Редактирование долга" if editing else "Новый долг",
+            ft.Column([title, amount, monthly, half_dd], tight=True, spacing=10),
             [
                 ft.TextButton("Отмена", on_click=lambda e: page.pop_dialog()),
                 ft.FilledButton("Сохранить", on_click=save),

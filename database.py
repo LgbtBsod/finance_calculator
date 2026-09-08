@@ -16,6 +16,7 @@ from models import (
     CalendarRow,
     CorrectionRow,
     ExpenseRow,
+    IncomeRow,
     VacationRow,
 )
 
@@ -24,6 +25,25 @@ __all__ = ["DatabaseManager"]
 # Сентинел для трёхзначных PATCH-полей: отличает "аргумент не передан"
 # (оставить как есть) от "передан явный None" (очистить значение в БД).
 _UNSET = object()
+
+# Условие выборки за период с проекцией повторяющихся строк вперёд: точное
+# совпадение периода ЛИБО повторяющаяся строка, созданная раньше и ещё не
+# достигшая recurring_until. Общее для expenses и income (DRY).
+_RECURRING_WHERE = """
+    (month = :month AND year = :year)
+    OR (
+        is_recurring = 1
+        AND (year < :year OR (year = :year AND month < :month))
+        AND (
+            recurring_until IS NULL
+            OR CAST(strftime('%Y', recurring_until) AS INTEGER) > :year
+            OR (
+                CAST(strftime('%Y', recurring_until) AS INTEGER) = :year
+                AND CAST(strftime('%m', recurring_until) AS INTEGER) >= :month
+            )
+        )
+    )
+"""
 
 
 class DatabaseManager:
@@ -154,6 +174,18 @@ class DatabaseManager:
                     FOREIGN KEY (group_id) REFERENCES expense_groups(id)
                 );
 
+                -- Доходы (прибавляются к балансу; зеркало expenses без групп)
+                CREATE TABLE IF NOT EXISTS income (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name           TEXT    NOT NULL,
+                    amount         REAL    NOT NULL DEFAULT 0.0,
+                    half           INTEGER NOT NULL DEFAULT 1,
+                    month          INTEGER NOT NULL,
+                    year           INTEGER NOT NULL,
+                    is_recurring   INTEGER NOT NULL DEFAULT 0,
+                    recurring_until TEXT
+                );
+
                 -- Отпускные
                 CREATE TABLE IF NOT EXISTS vacations (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,12 +197,14 @@ class DatabaseManager:
 
                 -- Долги
                 CREATE TABLE IF NOT EXISTS debts (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title        TEXT    NOT NULL,
-                    total_amount REAL    NOT NULL DEFAULT 0.0,
-                    month        INTEGER NOT NULL,
-                    year         INTEGER NOT NULL,
-                    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title           TEXT    NOT NULL,
+                    total_amount    REAL    NOT NULL DEFAULT 0.0,
+                    month           INTEGER NOT NULL,
+                    year            INTEGER NOT NULL,
+                    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                    monthly_payment REAL    NOT NULL DEFAULT 0,
+                    payment_half    INTEGER NOT NULL DEFAULT 2
                 );
 
                 -- Погашения долгов
@@ -183,9 +217,10 @@ class DatabaseManager:
                     FOREIGN KEY (debt_id) REFERENCES debts(id) ON DELETE CASCADE
                 );
 
-                -- Расходы почти всегда фильтруются по (year, month); погашения
-                -- долга — по debt_id (см. get_expenses/get_debts).
+                -- Расходы/доходы почти всегда фильтруются по (year, month);
+                -- погашения долга — по debt_id (см. get_expenses/get_debts).
                 CREATE INDEX IF NOT EXISTS idx_expenses_year_month ON expenses(year, month);
+                CREATE INDEX IF NOT EXISTS idx_income_year_month ON income(year, month);
                 CREATE INDEX IF NOT EXISTS idx_debt_repayments_debt_id ON debt_repayments(debt_id);
             """)
             c.commit()
@@ -217,6 +252,13 @@ class DatabaseManager:
         }
         if "monthly_limit" not in group_cols:
             c.execute("ALTER TABLE expense_groups ADD COLUMN monthly_limit REAL")
+
+        # Плановый ежемесячный платёж по долгу — вычитается из баланса месяца.
+        debt_cols = {row["name"] for row in c.execute("PRAGMA table_info(debts)").fetchall()}
+        if "monthly_payment" not in debt_cols:
+            c.execute("ALTER TABLE debts ADD COLUMN monthly_payment REAL NOT NULL DEFAULT 0")
+        if "payment_half" not in debt_cols:
+            c.execute("ALTER TABLE debts ADD COLUMN payment_half INTEGER NOT NULL DEFAULT 2")
 
         c.commit()
 
@@ -432,36 +474,18 @@ class DatabaseManager:
         показывала бы месяц своего создания, а не месяц, на который она
         сейчас распространяется.
         """
+        cols = ("id, name, amount, half, month, year, "
+                "is_recurring, is_inclusive, group_id, recurring_until")
         with self._transaction() as c:
             if month is not None and year is not None:
                 rows = c.execute(
-                    """
-                    SELECT id, name, amount, half, month, year,
-                           is_recurring, is_inclusive, group_id, recurring_until
-                    FROM expenses
-                    WHERE (month = :month AND year = :year)
-                       OR (
-                            is_recurring = 1
-                            AND (year < :year OR (year = :year AND month < :month))
-                            AND (
-                                recurring_until IS NULL
-                                OR CAST(strftime('%Y', recurring_until) AS INTEGER) > :year
-                                OR (
-                                    CAST(strftime('%Y', recurring_until) AS INTEGER) = :year
-                                    AND CAST(strftime('%m', recurring_until) AS INTEGER) >= :month
-                                )
-                            )
-                          )
-                    ORDER BY half, id
-                    """,
+                    f"SELECT {cols} FROM expenses WHERE {_RECURRING_WHERE} ORDER BY half, id",
                     {"month": month, "year": year},
                 ).fetchall()
                 return [_expense_from_row(r, view_month=month, view_year=year) for r in rows]
 
             rows = c.execute(
-                "SELECT id, name, amount, half, month, year, "
-                "is_recurring, is_inclusive, group_id, recurring_until "
-                "FROM expenses ORDER BY year, month, half, id"
+                f"SELECT {cols} FROM expenses ORDER BY year, month, half, id"
             ).fetchall()
             return [_expense_from_row(r) for r in rows]
 
@@ -521,6 +545,69 @@ class DatabaseManager:
                     new_group_id,
                     new_recurring_until,
                     eid,
+                ),
+            )
+
+    # ═════════════════════════════════════════════════════════
+    #  INCOME (доходы — зеркало expenses без групп, прибавляются к балансу)
+    # ═════════════════════════════════════════════════════════
+
+    def add_income(
+        self, name: str, amount: float, half: int, month: int, year: int,
+        is_recurring: bool = False, recurring_until: str | None = None,
+    ) -> int:
+        with self._transaction() as c:
+            cursor = c.execute(
+                "INSERT INTO income (name, amount, half, month, year, is_recurring, recurring_until) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (name, amount, half, month, year, int(is_recurring), recurring_until),
+            )
+            return cursor.lastrowid
+
+    def get_income(
+        self, month: int | None = None, year: int | None = None
+    ) -> list[IncomeRow]:
+        """Доходы за период — та же проекция повторяющихся строк вперёд, что и
+        у расходов (см. get_expenses)."""
+        cols = "id, name, amount, half, month, year, is_recurring, recurring_until"
+        with self._transaction() as c:
+            if month is not None and year is not None:
+                rows = c.execute(
+                    f"SELECT {cols} FROM income WHERE {_RECURRING_WHERE} ORDER BY half, id",
+                    {"month": month, "year": year},
+                ).fetchall()
+                return [_income_from_row(r, view_month=month, view_year=year) for r in rows]
+            rows = c.execute(
+                f"SELECT {cols} FROM income ORDER BY year, month, half, id"
+            ).fetchall()
+            return [_income_from_row(r) for r in rows]
+
+    def delete_income(self, iid: int) -> None:
+        with self._transaction() as c:
+            c.execute("DELETE FROM income WHERE id=?", (iid,))
+
+    def update_income(
+        self, iid: int, name: str | None = None, amount: float | None = None,
+        half: int | None = None, is_recurring: bool | None = None,
+        recurring_until: str | None | object = _UNSET,
+    ) -> None:
+        with self._transaction() as c:
+            current = c.execute(
+                "SELECT name, amount, half, is_recurring, recurring_until FROM income WHERE id=?",
+                (iid,),
+            ).fetchone()
+            if not current:
+                raise ValueError(f"Income with id {iid} not found")
+            c.execute(
+                "UPDATE income SET name=?, amount=?, half=?, is_recurring=?, recurring_until=? "
+                "WHERE id=?",
+                (
+                    name if name is not None else current["name"],
+                    amount if amount is not None else current["amount"],
+                    half if half is not None else current["half"],
+                    int(is_recurring if is_recurring is not None else bool(current["is_recurring"])),
+                    current["recurring_until"] if recurring_until is _UNSET else recurring_until,
+                    iid,
                 ),
             )
 
@@ -661,19 +748,41 @@ class DatabaseManager:
         total_amount: float,
         month: int,
         year: int,
+        monthly_payment: float = 0.0,
+        payment_half: int = 2,
     ) -> int:
         with self._transaction() as c:
             cursor = c.execute(
-                "INSERT INTO debts (title, total_amount, month, year, created_at) "
-                "VALUES (?, ?, ?, ?, datetime('now'))",
-                (title, total_amount, month, year),
+                "INSERT INTO debts "
+                "(title, total_amount, month, year, created_at, monthly_payment, payment_half) "
+                "VALUES (?, ?, ?, ?, datetime('now'), ?, ?)",
+                (title, total_amount, month, year, monthly_payment, payment_half),
             )
             return cursor.lastrowid
+
+    def update_debt(
+        self, debt_id: int, *, title: str | None = None, total_amount: float | None = None,
+        monthly_payment: float | None = None, payment_half: int | None = None,
+    ) -> None:
+        updates, values = [], []
+        for col, val in (
+            ("title", title), ("total_amount", total_amount),
+            ("monthly_payment", monthly_payment), ("payment_half", payment_half),
+        ):
+            if val is not None:
+                updates.append(f"{col}=?")
+                values.append(val)
+        if not updates:
+            return
+        values.append(debt_id)
+        with self._transaction() as c:
+            c.execute(f"UPDATE debts SET {', '.join(updates)} WHERE id=?", values)
 
     def get_debts(self) -> list[dict]:
         with self._transaction() as c:
             rows = c.execute(
                 "SELECT d.id, d.title, d.total_amount, d.month, d.year, d.created_at, "
+                "d.monthly_payment, d.payment_half, "
                 "(SELECT COALESCE(SUM(r.amount), 0) FROM debt_repayments r WHERE r.debt_id = d.id) as repaid_amount "
                 "FROM debts d ORDER BY d.year, d.month, d.created_at"
             ).fetchall()
@@ -764,3 +873,16 @@ def _expense_from_row(
         d["month"] = view_month
         d["year"] = view_year
     return ExpenseRow(**d)
+
+
+def _income_from_row(
+    r: sqlite3.Row, *, view_month: int | None = None, view_year: int | None = None
+) -> IncomeRow:
+    """sqlite3.Row → IncomeRow (см. _expense_from_row — та же логика проекции)."""
+    d = dict(r)
+    d["is_recurring"] = bool(d["is_recurring"])
+    d.setdefault("recurring_until", None)
+    if view_month is not None and view_year is not None:
+        d["month"] = view_month
+        d["year"] = view_year
+    return IncomeRow(**d)
