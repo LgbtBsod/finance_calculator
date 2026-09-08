@@ -74,8 +74,9 @@ python build.py --clean
 `modules/` (`db` — единственный с SQL, `cache`, `calendar`, `calculator`,
 `birthdays`, `finance`, `updater`) — общаются только через ядро, изоляция
 проверяется AST-тестом. `services.FinanceService` — тонкий фасад GUI.
-Легаси-слой (`config`, `models`, `database`, `calculator`, `prod_calendar`,
-`updater`) — kernel-agnostic, обёрнут модулями.
+Легаси-слой (`config`, `models`, пакет `db/` — engine/schema/migrations/query/
+rows/repositories, `calculator`, `prod_calendar`, `updater`) — kernel-agnostic,
+обёрнут модулями.
 
 Подробнее — [ARCHITECTURE.md](ARCHITECTURE.md).
 
