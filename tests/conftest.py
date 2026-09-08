@@ -54,8 +54,12 @@ def birthday_service(db: DatabaseManager) -> BirthdayService:
 
 @pytest.fixture
 def kernel():
-    """Полное ядро (7 модулей) на изолированной in-memory БД."""
-    k = build_kernel(":memory:")
+    """Полное ядро (7 модулей) на изолированной in-memory БД.
+
+    strict=True — ядро валидирует и возвращаемые значения хендлеров (ловит
+    модуль, случайно вернувший живой объект).
+    """
+    k = build_kernel(":memory:", strict=True)
     yield k
     k.shutdown()
 

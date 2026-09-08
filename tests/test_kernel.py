@@ -198,6 +198,7 @@ class TestIsolation:
         assert isinstance(e.k, KernelView)
         assert not hasattr(e.k, "get_module")
         assert not hasattr(e.k, "_modules")
+        assert not hasattr(e.k, "_kernel")  # name-mangled, не достать по имени
 
     def test_kernelview_has_check_only(self):
         e = Echo()
@@ -206,3 +207,67 @@ class TestIsolation:
         assert e.k.has("nope") is False
         # но не даёт сам объект
         assert k.get_module("other") is not None  # это можно только на Kernel
+
+    def test_strict_rejects_live_object_return(self):
+        class Leaky(Module):
+            name = "leaky"
+
+            def initialize(self):
+                self._actions = {"leak": lambda: self}
+
+        k = Kernel(strict=True)
+        k.register("leaky", Leaky())
+        k.register("other", Other())
+        k.initialize()
+        with pytest.raises(PayloadError):
+            k.view("t").request("leaky", "leak")
+
+
+class TestConcurrency:
+    def test_concurrent_requests_and_isolated_event_flush(self):
+        """Общий Kernel, много потоков: глубина запроса и очередь событий
+        per-thread — инкременты не теряются, события не дропаются."""
+        import threading
+
+        received: list[int] = []
+        lock = threading.Lock()
+
+        class Worker(Module):
+            name = "w"
+
+            def initialize(self):
+                self._actions = {"work": self._work, "noop": lambda: None}
+
+            def _work(self, n):
+                self.k.request("w", "noop")  # вложенный -> глубина этого потока 2
+                self.k.emit("did:work", n=n)
+                return n
+
+        class Listener(Module):
+            name = "ls"
+
+            def initialize(self):
+                self.k.subscribe("did:work", self._on)
+                self._actions = {}
+
+            def _on(self, n):
+                with lock:
+                    received.append(n)
+
+        k = Kernel()
+        k.register("w", Worker())
+        k.register("ls", Listener())
+        k.initialize()
+
+        def run(i):
+            for j in range(20):
+                k.view(f"t{i}").request("w", "work", n=i * 100 + j)
+
+        threads = [threading.Thread(target=run, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert sorted(received) == sorted(i * 100 + j for i in range(8) for j in range(20))
+        assert k._ctx.depth == 0  # глубина текущего потока вернулась к 0

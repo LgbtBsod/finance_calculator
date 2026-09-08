@@ -174,7 +174,7 @@ def main() -> None:
         from gui.app import run_app
 
         kernel = build_kernel(str(paths.db_path))
-        log.info("Ядро собрано: модули %s", ", ".join(kernel._order))
+        log.info("Ядро собрано: модули %s", ", ".join(kernel.module_names()))
         run_app(kernel=kernel, port=port)
     except Exception as e:
         log.critical("Fatal error starting GUI: %s", e, exc_info=True)

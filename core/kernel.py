@@ -4,6 +4,14 @@
 модули, вызывает ``initialize()`` и передаёт ядро в ``run_app``. Тесты строят
 свежий Kernel на каждый тест — настоящая изоляция.
 
+Один Kernel и один FinanceService делятся между всеми браузер-сессиями Flet, а
+каждая сессия обслуживается в своём потоке. Поэтому:
+  - «глубина верхнеуровневого запроса», очередь отложенных событий и флаг
+    диспетчеризации — per-thread (threading.local): «верхнеуровневый» — это
+    свойство стека вызовов конкретного потока, общий счётчик был бы неверен;
+  - реестр модулей/подписчиков защищён RLock;
+  - каждый модуль сам потокобезопасен для своего состояния (см. CacheModule).
+
 Два канала:
   request(target, action, **payload) -> Any   — синхронный вызов, нужен ответ
   emit(event, **data) / subscribe(event, fn)  — fire-and-forget оповещение
@@ -34,49 +42,61 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _ThreadCtx(threading.local):
+    """Контекст запроса, локальный для потока."""
+
+    def __init__(self) -> None:
+        self.depth: int = 0
+        self.queue: list[Event] = []
+        self.dispatching: bool = False
+
+
 class KernelView:
     """То, что видит модуль: request / emit / subscribe / log. И больше ничего.
 
     Каждый модуль получает свой KernelView со своим именем — ядро проставляет
     его как ``source`` в Message, а модуль не может достучаться до соседа
-    иначе как через ``request(name, action, ...)``.
+    иначе как через ``request(name, action, ...)``. Ссылка на ядро — под
+    name-mangled слотом ``__k`` (тест архитектуры также запрещает ``._kernel`` /
+    ``get_module`` / ``._modules`` в прод-коде).
     """
 
-    __slots__ = ("_kernel", "name")
+    __slots__ = ("_KernelView__k", "name")
 
     def __init__(self, kernel: Kernel, name: str) -> None:
-        self._kernel = kernel
+        self.__k = kernel
         self.name = name
 
     def request(self, target: str, action: str, /, **payload: Any) -> Any:
-        return self._kernel._dispatch_request(self.name, target, action, payload)
+        return self.__k._dispatch_request(self.name, target, action, payload)
 
     def emit(self, event: str, /, **data: Any) -> None:
-        self._kernel._enqueue_event(self.name, event, data)
+        self.__k._enqueue_event(self.name, event, data)
 
     def subscribe(self, event: str, handler: Callable[..., None]) -> None:
-        self._kernel._subscribe(event, handler)
+        self.__k._subscribe(event, handler)
 
     def has(self, name: str) -> bool:
         """Зарегистрирован ли модуль. Возвращает bool — не даёт ссылку."""
-        return name in self._kernel._modules
+        return self.__k._has(name)
 
     def log(self, msg: str, *args: Any) -> None:
         logger.info(f"[{self.name}] {msg}", *args)
 
 
 class Kernel:
-    def __init__(self) -> None:
+    def __init__(self, *, strict: bool = False) -> None:
         self._modules: dict[str, Module] = {}
         self._order: list[str] = []
         self._subscribers: dict[str, list[Callable[..., None]]] = {}
         self._lock = threading.RLock()
         self._initialized = False
         self._frozen = False
-        # Очередь событий + признак «внутри верхнеуровневого request».
-        self._event_queue: list[Event] = []
-        self._request_depth = 0
-        self._dispatching_events = False
+        self._ctx = _ThreadCtx()
+        # strict=True (тесты): валидировать и возвращаемые значения хендлеров —
+        # ловит модуль, случайно вернувший живой объект. В проде дорого (deep-walk
+        # каждого результата), поэтому по умолчанию выключено.
+        self._strict = strict
 
     # ── регистрация / жизненный цикл ──────────────────────────
 
@@ -94,16 +114,13 @@ class Kernel:
         with self._lock:
             if self._initialized:
                 return
-            # 1. Проверить, что зависимости каждого модуля зарегистрированы —
-            #    громкое падение на boot, а не на первом balance().
             for name in self._order:
-                for dep in getattr(self._modules[name], "requires", ()):  # noqa: B009
+                for dep in getattr(self._modules[name], "requires", ()):
                     if dep not in self._modules:
                         raise KernelError(
                             name, "initialize",
                             f"модулю '{name}' нужен незарегистрированный модуль '{dep}'",
                         )
-            # 2. initialize() в порядке регистрации.
             for name in self._order:
                 mod = self._modules[name]
                 if hasattr(mod, "initialize"):
@@ -134,12 +151,22 @@ class Kernel:
         return self._modules[name]
 
     def __contains__(self, name: str) -> bool:
-        return name in self._modules
+        with self._lock:
+            return name in self._modules
+
+    def _has(self, name: str) -> bool:
+        with self._lock:
+            return name in self._modules
 
     def view(self, name: str) -> KernelView:
         """KernelView для внешнего потребителя (GUI-фасад). Не модуль —
         поэтому имя произвольное, в маршрутизации участвует только как source."""
         return KernelView(self, name)
+
+    def module_names(self) -> list[str]:
+        """Имена зарегистрированных модулей в порядке регистрации (для логов)."""
+        with self._lock:
+            return list(self._order)
 
     # ── маршрутизация запросов ────────────────────────────────
 
@@ -150,30 +177,33 @@ class Kernel:
         if bad is not None:
             raise PayloadError(target, action, f"payload['{bad}'] — не плоские данные")
 
-        module = self._modules.get(target)
+        with self._lock:
+            module = self._modules.get(target)
         if module is None:
             raise UnknownModuleError(target, sorted(self._modules))
 
-        msg = Message(source=source, target=target, action=action, payload=payload)
-        logger.debug("%s", msg)
+        logger.debug("%s", Message(source=source, target=target, action=action, payload=payload))
 
-        self._request_depth += 1
+        ctx = self._ctx
+        ctx.depth += 1
         try:
             try:
                 result = module.handle(action, dict(payload))
             except (UserFacingError, KernelError):
                 raise
             except TypeError as exc:
-                # неверный набор kwargs хендлера
                 raise PayloadError(target, action, str(exc)) from exc
             except Exception as exc:  # noqa: BLE001
                 raise KernelError(target, action, f"{type(exc).__name__}: {exc}") from exc
         finally:
-            self._request_depth -= 1
+            ctx.depth -= 1
 
-        # Верхнеуровневый request раскрутился — можно диспатчить накопленные события.
-        if self._request_depth == 0:
-            self._flush_events()
+        if self._strict and (bad := first_bad({"result": result})) is not None:
+            raise PayloadError(target, action, f"хендлер вернул не плоские данные ({bad})")
+
+        # Верхнеуровневый request этого потока раскрутился — диспатчим его события.
+        if ctx.depth == 0:
+            self._flush_events(ctx)
         return result
 
     # ── события ──────────────────────────────────────────────
@@ -186,23 +216,25 @@ class Kernel:
         bad = first_bad(data)
         if bad is not None:
             raise PayloadError(event, "emit", f"data['{bad}'] — не плоские данные")
-        self._event_queue.append(Event(name=event, source=source, data=data))
+        ctx = self._ctx
+        ctx.queue.append(Event(name=event, source=source, data=data))
         # emit вне request (например из initialize) — диспатчим сразу.
-        if self._request_depth == 0 and not self._dispatching_events:
-            self._flush_events()
+        if ctx.depth == 0 and not ctx.dispatching:
+            self._flush_events(ctx)
 
-    def _flush_events(self) -> None:
-        if self._dispatching_events:
+    def _flush_events(self, ctx: _ThreadCtx) -> None:
+        if ctx.dispatching:
             return
-        self._dispatching_events = True
+        ctx.dispatching = True
         try:
-            # Новые события, порождённые обработчиками, тоже уйдут в этом цикле.
-            while self._event_queue:
-                ev = self._event_queue.pop(0)
-                for handler in list(self._subscribers.get(ev.name, ())):
+            while ctx.queue:
+                ev = ctx.queue.pop(0)
+                with self._lock:
+                    handlers = list(self._subscribers.get(ev.name, ()))
+                for handler in handlers:
                     try:
                         handler(**ev.data)
                     except Exception as exc:  # noqa: BLE001
                         logger.error("подписчик %s упал: %s", ev.name, exc)
         finally:
-            self._dispatching_events = False
+            ctx.dispatching = False

@@ -36,6 +36,12 @@ class TestDBModule:
         with pytest.raises(ValidationError):
             req(kernel, "db", "backup_to", target_path="/tmp/x.db")
 
+    def test_update_missing_expense_is_user_facing(self, kernel):
+        from core.errors import UserFacingError
+
+        with pytest.raises(UserFacingError):  # не голый KernelError
+            req(kernel, "db", "update_expense", eid=999999, amount=1)
+
 
 class TestCalendarModule:
     def test_working_days(self, kernel):
@@ -86,6 +92,13 @@ class TestFinanceModule:
     def test_settings_roundtrip(self, kernel):
         req(kernel, "finance", "settings_update", updates={"baseSalary": 123456})
         assert req(kernel, "finance", "settings_get")["baseSalary"] == 123456
+
+    def test_settings_change_invalidates_balance_cache(self, kernel):
+        b1 = req(kernel, "finance", "balance", month=7, year=2025)
+        req(kernel, "finance", "settings_update",
+            updates={"baseSalary": 999999, "taxRate": 0, "kef": 1.0})
+        b2 = req(kernel, "finance", "balance", month=7, year=2025)
+        assert b2["netSalary"] == 999999 and b2 != b1  # пересчитано, не из кэша
 
 
 class TestUpdaterModule:

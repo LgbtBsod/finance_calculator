@@ -92,7 +92,10 @@ class DBModule(Module):
         return {"id": new_id}
 
     def _update_expense(self, eid: int, **kw: Any) -> dict | None:
-        self.db.update_expense(eid=eid, **kw)
+        try:
+            self.db.update_expense(eid=eid, **kw)
+        except ValueError as e:  # database.py: "Expense with id N not found"
+            raise ValidationError("Расход не найден — возможно, удалён в другой вкладке") from e
         self._changed("expenses")
         return next((e for e in self.db.get_expenses() if e["id"] == eid), None)
 

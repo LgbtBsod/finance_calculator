@@ -10,7 +10,7 @@ from core.kernel import Kernel
 _ORDER = ("db", "cache", "calendar", "calculator", "birthdays", "finance", "updater")
 
 
-def build_kernel(db_path: str, *, initialize: bool = True) -> Kernel:
+def build_kernel(db_path: str, *, initialize: bool = True, strict: bool = False) -> Kernel:
     from modules.birthdays import BirthdaysModule
     from modules.cache import CacheModule
     from modules.calculator import CalculatorModule
@@ -29,7 +29,7 @@ def build_kernel(db_path: str, *, initialize: bool = True) -> Kernel:
         "updater": UpdaterModule,
     }
 
-    kernel = Kernel()
+    kernel = Kernel(strict=strict)
     for name in _ORDER:
         kernel.register(name, factories[name]())
     if initialize:
