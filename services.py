@@ -93,10 +93,10 @@ class FinanceService:
             "groupId": e.get("group_id"),
             "name": e["name"],
             "amount": e["amount"],
-            "isInclusive": e.get("is_inclusive", False),
             "half": e.get("half", 1),
             "isRecurring": e.get("is_recurring", False),
             "recurringUntil": e.get("recurring_until"),
+            "projected": e.get("projected", False),
             "month": e["month"],
             "year": e["year"],
         }
@@ -157,6 +157,7 @@ class FinanceService:
             "half": i.get("half", 1),
             "isRecurring": i.get("is_recurring", False),
             "recurringUntil": i.get("recurring_until"),
+            "projected": i.get("projected", False),
             "month": i["month"],
             "year": i["year"],
         }

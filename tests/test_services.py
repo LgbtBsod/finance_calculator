@@ -106,10 +106,16 @@ class TestExpenses:
     def test_recurring_projection_in_list(self, service: FinanceService):
         service.create_expense(name="Sub", amount=500, half=1, month=1, year=2025,
                                is_recurring=True)
-        assert len(service.list_expenses(1, 2025)) == 1
-        assert len(service.list_expenses(6, 2025)) == 1  # спроецирован вперёд
+        assert service.list_expenses(1, 2025)[0]["projected"] is False   # оригинал
+        assert service.list_expenses(6, 2025)[0]["projected"] is True    # проекция
         # без фильтра периода — только реальная строка
         assert len(service.list_expenses()) == 1
+
+    def test_projected_recurring_row_carries_flag_for_income_too(self, service: FinanceService):
+        service.create_income(name="Аренда", amount=20000, half=1, month=1, year=2025,
+                              is_recurring=True)
+        assert service.list_income(1, 2025)[0]["projected"] is False
+        assert service.list_income(6, 2025)[0]["projected"] is True
 
 
 class TestAnalytics:

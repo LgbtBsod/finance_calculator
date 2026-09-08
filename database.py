@@ -79,9 +79,9 @@ class DatabaseManager:
         if self._conn_cache is not None:
             return self._conn_cache
         is_memory = self.db_path == ":memory:"
-        # check_same_thread=False только для :memory: (используется в тестах,
-        # где FastAPI TestClient диспетчеризует запросы в отдельный поток) —
-        # для файловой БД в проде поведение не меняется.
+        # check_same_thread=False только для :memory: (тестовая БД, к которой
+        # обращаются из разных потоков) — для файловой БД в проде каждое
+        # соединение живёт в рамках одного _transaction() и не шарится.
         c = sqlite3.connect(self.db_path, check_same_thread=not is_memory)
         c.row_factory = sqlite3.Row
         if not is_memory:
@@ -269,26 +269,24 @@ class DatabaseManager:
         c.commit()
 
     def _seed_defaults(self, c: sqlite3.Connection) -> None:
-        """Seed default settings from AppSettings (SSOT)."""
-        settings = get_settings()
+        """Первичное заполнение таблицы settings из AppSettings (единственный
+        источник доменных дефолтов). bool → 'true'/'false' (строковый вид,
+        который читают calculator/finance)."""
+        s = get_settings()
         defaults = {
-            "base_salary": str(settings.base_salary),
-            "tax_rate": str(settings.tax_rate),
-            "kef": str(settings.kef),
-            "standard_hours": str(settings.standard_hours),
-            "advance_cutoff_day": str(settings.advance_cutoff_day),
-            "is_advance_date_inclusive": str(settings.is_advance_date_inclusive).lower(),
-            "account_shortened": str(settings.account_shortened).lower(),
-            "payout_day1": str(getattr(settings, "payout_day1", 10)),
-            "payout_day2": str(getattr(settings, "payout_day2", 25)),
-            "move_weekend_to_friday": str(
-                getattr(settings, "move_weekend_to_friday", False)
-            ).lower(),
-            "salary_calculation_method": getattr(
-                settings, "salary_calculation_method", "proportional"
-            ),
-            "first_half_ratio": str(getattr(settings, "first_half_ratio", 0.4)),
-            "second_half_ratio": str(getattr(settings, "second_half_ratio", 0.6)),
+            "base_salary": str(s.base_salary),
+            "tax_rate": str(s.tax_rate),
+            "kef": str(s.kef),
+            "standard_hours": str(s.standard_hours),
+            "advance_cutoff_day": str(s.advance_cutoff_day),
+            "is_advance_date_inclusive": str(s.is_advance_date_inclusive).lower(),
+            "account_shortened": str(s.account_shortened).lower(),
+            "payout_day1": str(s.payout_day1),
+            "payout_day2": str(s.payout_day2),
+            "move_weekend_to_friday": str(s.move_weekend_to_friday).lower(),
+            "salary_calculation_method": s.salary_calculation_method,
+            "first_half_ratio": str(s.first_half_ratio),
+            "second_half_ratio": str(s.second_half_ratio),
         }
         for k, v in defaults.items():
             c.execute(
@@ -437,26 +435,15 @@ class DatabaseManager:
         month: int,
         year: int,
         is_recurring: bool = False,
-        is_inclusive: bool = False,
         group_id: str | None = None,
         recurring_until: str | None = None,
     ) -> int:
         with self._transaction() as c:
             cursor = c.execute(
                 "INSERT INTO expenses "
-                "(name,amount,half,month,year,is_recurring,is_inclusive,group_id,recurring_until) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                (
-                    name,
-                    amount,
-                    half,
-                    month,
-                    year,
-                    int(is_recurring),
-                    int(is_inclusive),
-                    group_id,
-                    recurring_until,
-                ),
+                "(name,amount,half,month,year,is_recurring,group_id,recurring_until) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (name, amount, half, month, year, int(is_recurring), group_id, recurring_until),
             )
             return cursor.lastrowid
 
@@ -481,7 +468,7 @@ class DatabaseManager:
         сейчас распространяется.
         """
         cols = ("id, name, amount, half, month, year, "
-                "is_recurring, is_inclusive, group_id, recurring_until")
+                "is_recurring, group_id, recurring_until")
         with self._transaction() as c:
             if month is not None and year is not None:
                 rows = c.execute(
@@ -883,10 +870,22 @@ def _expense_from_row(
         d["group_id"] = None
     if "recurring_until" not in d:
         d["recurring_until"] = None
+    d["projected"] = _is_projected(d, view_month, view_year)
     if view_month is not None and view_year is not None:
         d["month"] = view_month
         d["year"] = view_year
     return ExpenseRow(**d)
+
+
+def _is_projected(row: dict, view_month: int | None, view_year: int | None) -> bool:
+    """Строка спроецирована повторяющимся правилом, если запрошен конкретный
+    период и он не совпадает с периодом создания строки."""
+    return (
+        bool(row.get("is_recurring"))
+        and view_month is not None
+        and view_year is not None
+        and (row["month"], row["year"]) != (view_month, view_year)
+    )
 
 
 def _income_from_row(
@@ -896,6 +895,7 @@ def _income_from_row(
     d = dict(r)
     d["is_recurring"] = bool(d["is_recurring"])
     d.setdefault("recurring_until", None)
+    d["projected"] = _is_projected(d, view_month, view_year)
     if view_month is not None and view_year is not None:
         d["month"] = view_month
         d["year"] = view_year

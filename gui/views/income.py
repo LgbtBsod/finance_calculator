@@ -71,21 +71,34 @@ class IncomeView(View):
         ]
         if item["isRecurring"]:
             tail = f" до {format_date_ru(item['recurringUntil'])}" if item["recurringUntil"] else ""
-            badges.append(hint("повтор" + tail))
+            badges.append(hint(("повтор (оригинал в другом месяце)" if item.get("projected")
+                                else "повтор") + tail))
+
+        if item.get("projected"):
+            controls = [icon_button(ft.Icons.LOCK_OUTLINE, lambda e: self._explain_projected(),
+                                    tooltip="Повторяющаяся запись — правьте оригинал")]
+        else:
+            controls = [
+                icon_button(ft.Icons.EDIT_OUTLINED, lambda e, it=item: self._open_form(it),
+                            tooltip="Изменить"),
+                icon_button(ft.Icons.DELETE_OUTLINE, lambda e, it=item: self._delete(it),
+                            tooltip="Удалить", color=COLORS["danger"]),
+            ]
         return card(
             ft.Row(
                 [
                     ft.Text(item["name"], size=14, weight=ft.FontWeight.W_600,
                             color=COLORS["text"], expand=True),
-                    icon_button(ft.Icons.EDIT_OUTLINED, lambda e, it=item: self._open_form(it),
-                                tooltip="Изменить"),
-                    icon_button(ft.Icons.DELETE_OUTLINE, lambda e, it=item: self._delete(it),
-                                tooltip="Удалить", color=COLORS["danger"]),
+                    *controls,
                 ],
             ),
             money_text(item["amount"], size=18, color=COLORS["success"]),
             ft.Row(badges, wrap=True, spacing=8),
         )
+
+    def _explain_projected(self) -> None:
+        self.toast("Это повторяющийся доход, показанный на этот месяц. Чтобы изменить или "
+                   "удалить его, откройте «За все периоды» и правьте оригинал.", error=True)
 
     def _toggle_all(self, e):
         self.show_all = e.control.value

@@ -1,10 +1,7 @@
 """models.py — Чистые immutable модели данных, Enum'ы, Protocol'ы, TypedDict'ы.
 
-Нулевая бизнес-логика — только структура и контракты.
-
-Pydantic DTO для валидации HTTP-запросов сознательно живут в api.py, а не
-здесь: там их единственный потребитель (SRP), и там же генерируется OpenAPI-
-схема, которую фронтенд использует для типов (см. ARCHITECTURE.md).
+Нулевая бизнес-логика — только структура и контракты. Легаси-слой:
+kernel-agnostic, обёрнут модулями (см. ARCHITECTURE.md).
 """
 
 from __future__ import annotations
@@ -173,6 +170,10 @@ class ExpenseRow(TypedDict):
     is_recurring: bool
     group_id: str | None
     recurring_until: str | None
+    # True для строки, спроецированной повторяющимся правилом на запрошенный
+    # период (id/created — оригинала из другого месяца). Правка/удаление
+    # такой строки затронули бы всю серию — GUI это блокирует.
+    projected: bool
 
 
 class IncomeRow(TypedDict):
@@ -184,6 +185,7 @@ class IncomeRow(TypedDict):
     year: int
     is_recurring: bool
     recurring_until: str | None
+    projected: bool
 
 
 class BirthdayRow(TypedDict):

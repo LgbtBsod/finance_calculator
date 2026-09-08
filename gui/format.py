@@ -5,16 +5,11 @@
 
 from __future__ import annotations
 
-MONTH_NAMES_RU: tuple[str, ...] = (
-    "",
-    "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
-)
+from config import MONTH_GENITIVE, MONTH_NOMINATIVE
 
-_MONTH_GENITIVE_RU: tuple[str, ...] = (
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
-)
+# SSOT названий месяцев — в config.py. Здесь только реэкспорт под привычным
+# именем (все вью 1-индексируют: MONTH_NAMES_RU[month]).
+MONTH_NAMES_RU: tuple[str, ...] = MONTH_NOMINATIVE
 
 BIRTHDAY_PLACEHOLDER_YEAR = 2000
 
@@ -46,7 +41,7 @@ def format_date_long_ru(iso_date: str | None) -> str:
         y, m, d = (int(x) for x in iso_date[:10].split("-"))
     except ValueError:
         return iso_date
-    return f"{d} {_MONTH_GENITIVE_RU[m - 1]} {y}"
+    return f"{d} {MONTH_GENITIVE[m]} {y}"
 
 
 def build_birth_date_for_api(day: int, month: int) -> str:
@@ -69,7 +64,7 @@ def format_birth_date_ru(birth_date: str) -> str:
     if not parsed:
         return birth_date
     day, month = parsed
-    return f"{day} {_MONTH_GENITIVE_RU[month - 1]}"
+    return f"{day} {MONTH_GENITIVE[month]}"
 
 
 def pluralize_ru(n: int, one: str, few: str, many: str) -> str:
@@ -85,4 +80,4 @@ def pluralize_ru(n: int, one: str, few: str, many: str) -> str:
 
 
 def month_year_short(month: int, year: int) -> str:
-    return f"{_MONTH_GENITIVE_RU[month - 1][:3]} {year}"
+    return f"{MONTH_GENITIVE[month][:3]} {year}"

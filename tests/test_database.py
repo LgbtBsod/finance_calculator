@@ -161,6 +161,9 @@ class TestRecurringExpenseProjection:
         projected = db.get_expenses(month=11, year=2026)[0]
 
         assert (projected["month"], projected["year"]) == (11, 2026)
+        assert projected["projected"] is True          # строка из повтора
+        origin = db.get_expenses(month=8, year=2026)[0]
+        assert origin["projected"] is False            # оригинал в своём месяце
 
     def test_non_recurring_expense_does_not_project(self, db: DatabaseManager):
         db.add_expense("Разовая покупка", 500.0, half=1, month=8, year=2026, is_recurring=False)

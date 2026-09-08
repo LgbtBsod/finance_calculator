@@ -6,29 +6,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from paths import app_dir as APP_DIR
-
-# Корень проекта — якорь для дефолтных путей ниже. Без этого относительный
-# путь "budget.db" резолвится от текущей рабочей директории ПРОЦЕССА, а не
-# от расположения проекта: запусти приложение из другой папки (или через IDE
-# с другим cwd) — и оно как будто "забывает" все настройки, потому что на
-# самом деле открывает/создаёт совсем другой файл БД.
-#
-# APP_DIR (см. paths.py) — это корень репозитория при запуске из исходников
-# и папка рядом с .exe для собранной PyInstaller-версии: так budget.db
-# переживает авто-обновление, которое перезаписывает код рядом с ним.
-PROJECT_ROOT = APP_DIR
 
 __all__ = [
     "RU_BASE_HOLIDAYS",
+    "MONTH_NOMINATIVE",
+    "MONTH_GENITIVE",
     "MONTH_NAMES_GENITIVE",
     "MONTH_NAMES_NOMINATIVE",
-    "MONTH_DISPLAY",
-    "WEEKDAY_NAMES",
     "AppSettings",
     "get_settings",
 ]
@@ -65,10 +50,12 @@ RU_BASE_HOLIDAYS: frozenset[tuple[int, int]] = frozenset(
 
 # ── Pydantic Settings для типизированных настроек приложения ─────
 class AppSettings(BaseSettings):
-    """Типизированные настройки приложения (SSOT).
+    """Дефолты доменных настроек (оклад, метод расчёта, дни выплат…).
 
-    Все дефолтные значения определены ТОЛЬКО здесь.
-    Поддержка переменных окружения с префиксом FINANCE_.
+    Единственный потребитель — ``database._seed_defaults`` (первичное
+    заполнение таблицы ``settings``). Переопределяются переменными
+    окружения ``FINANCE_*`` / ``.env``. Пути приложения живут в ``paths.py``,
+    не здесь.
     """
 
     model_config = SettingsConfigDict(
@@ -78,11 +65,6 @@ class AppSettings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
     )
-
-    # Database & Storage — абсолютные пути, привязанные к PROJECT_ROOT,
-    # а не к cwd процесса (см. комментарий у PROJECT_ROOT выше).
-    db_path: str = str(PROJECT_ROOT / "db" / "budget.db")
-    upload_dir: Path = PROJECT_ROOT / ".upload"
 
     # Salary calculation defaults
     base_salary: float = 100000.0
@@ -113,71 +95,28 @@ class AppSettings(BaseSettings):
     # это обязательное правило, а не опция, поэтому по умолчанию включено.
     move_weekend_to_friday: bool = True
 
-    @property
-    def net_salary(self) -> float:
-        """Расчёт чистой зарплаты после налога."""
-        return self.base_salary * self.kef * (1.0 - self.tax_rate / 100.0)
-
 
 def get_settings() -> AppSettings:
     """Factory для получения настроек (SSOT)."""
     return AppSettings()
 
 
-# ── Русские названия для парсинга PDF ───────────────────────
-# Immutable mappings
-MONTH_NAMES_GENITIVE: dict[str, int] = {
-    "января": 1,
-    "февраля": 2,
-    "марта": 3,
-    "апреля": 4,
-    "мая": 5,
-    "июня": 6,
-    "июля": 7,
-    "августа": 8,
-    "сентября": 9,
-    "октября": 10,
-    "ноября": 11,
-    "декабря": 12,
-}
-
-MONTH_NAMES_NOMINATIVE: dict[str, int] = {
-    "январь": 1,
-    "февраль": 2,
-    "март": 3,
-    "апрель": 4,
-    "май": 5,
-    "июнь": 6,
-    "июль": 7,
-    "август": 8,
-    "сентябрь": 9,
-    "октябрь": 10,
-    "ноябрь": 11,
-    "декабрь": 12,
-}
-
-MONTH_DISPLAY: tuple[str, ...] = (
-    "",
-    "Январь",
-    "Февраль",
-    "Март",
-    "Апрель",
-    "Май",
-    "Июнь",
-    "Июль",
-    "Август",
-    "Сентябрь",
-    "Октябрь",
-    "Ноябрь",
-    "Декабрь",
+# ── Русские названия месяцев (SSOT) ─────────────────────────
+# 1-индексированные кортежи (индекс 0 = "") — единственный источник.
+# Словари «слово → номер» для парсинга PDF выводятся из них же.
+MONTH_NOMINATIVE: tuple[str, ...] = (
+    "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 )
 
-WEEKDAY_NAMES: dict[str, int] = {
-    "понедельник": 0,
-    "вторник": 1,
-    "среда": 2,
-    "четверг": 3,
-    "пятница": 4,
-    "суббота": 5,
-    "воскресенье": 6,
+MONTH_GENITIVE: tuple[str, ...] = (
+    "", "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+
+MONTH_NAMES_NOMINATIVE: dict[str, int] = {
+    name.lower(): i for i, name in enumerate(MONTH_NOMINATIVE) if name
+}
+MONTH_NAMES_GENITIVE: dict[str, int] = {
+    name: i for i, name in enumerate(MONTH_GENITIVE) if name
 }
