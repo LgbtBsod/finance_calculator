@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from db import Database, DatabaseManager
+from db.query import _UNSET, build_update
 
 _SNAPSHOT = Path(__file__).parent / "data" / "schema_snapshot.sql"
 
@@ -63,3 +64,45 @@ class TestFacadeSurface:
 
     def test_alias_is_the_same_class(self):
         assert DatabaseManager is Database
+
+
+class TestBuildUpdate:
+    """build_update заменил ручные SET-конструкторы в update_expense_group /
+    update_debt. Строка SQL должна остаться символ-в-символ прежней —
+    иначе это молчаливое изменение поведения БД."""
+
+    def test_expense_group_full_sql_matches_legacy(self):
+        sql, params = build_update("expense_groups", {
+            "name": "n", "color": "c", "parent_id": "p",
+            "sort_order": 1, "monthly_limit": 2.0,
+        }, {"id": "g1"})
+        assert sql == (
+            "UPDATE expense_groups SET name=?, color=?, parent_id=?, "
+            "sort_order=?, monthly_limit=? WHERE id=?"
+        )
+        assert params == ["n", "c", "p", 1, 2.0, "g1"]
+
+    def test_debt_full_sql_matches_legacy(self):
+        sql, params = build_update("debts", {
+            "title": "t", "total_amount": 1.0,
+            "monthly_payment": 2.0, "payment_half": 1,
+        }, {"id": 5})
+        assert sql == (
+            "UPDATE debts SET title=?, total_amount=?, "
+            "monthly_payment=?, payment_half=? WHERE id=?"
+        )
+        assert params == ["t", 1.0, 2.0, 1, 5]
+
+    def test_unset_skips_column_none_writes_null(self):
+        sql, params = build_update("expense_groups", {
+            "name": _UNSET, "color": _UNSET, "parent_id": None,
+            "sort_order": _UNSET, "monthly_limit": _UNSET,
+        }, {"id": "g1"})
+        assert sql == "UPDATE expense_groups SET parent_id=? WHERE id=?"
+        assert params == [None, "g1"]
+
+    def test_empty_fieldset_returns_none(self):
+        sql, params = build_update("debts", dict.fromkeys(
+            ("title", "total_amount", "monthly_payment", "payment_half"), _UNSET,
+        ), {"id": 5})
+        assert sql is None and params == []

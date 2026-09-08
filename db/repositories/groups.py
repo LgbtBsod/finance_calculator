@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from db.query import _UNSET
+from db.query import _UNSET, build_update
 from db.repositories.base import _Repo
 
 
@@ -52,31 +52,19 @@ class ExpenseGroupRepo(_Repo):
         """parent_id/monthly_limit — трёхзначные поля (см. update_expense):
         `_UNSET` по умолчанию значит "не менять", явный `None` — "снять
         значение" (нужно, например, чтобы разгруппировать подкатегорию или
-        убрать лимит у группы)."""
+        убрать лимит у группы). Порядок ключей = порядку старого ручного
+        конструктора -> строка SQL не изменилась."""
+        sql, params = build_update("expense_groups", {
+            "name": name if name is not None else _UNSET,
+            "color": color if color is not None else _UNSET,
+            "parent_id": parent_id,
+            "sort_order": sort_order if sort_order is not None else _UNSET,
+            "monthly_limit": monthly_limit,
+        }, {"id": group_id})
+        if sql is None:
+            return
         with self._tx() as c:
-            updates = []
-            values = []
-            if name is not None:
-                updates.append("name=?")
-                values.append(name)
-            if color is not None:
-                updates.append("color=?")
-                values.append(color)
-            if parent_id is not _UNSET:
-                updates.append("parent_id=?")
-                values.append(parent_id)
-            if sort_order is not None:
-                updates.append("sort_order=?")
-                values.append(sort_order)
-            if monthly_limit is not _UNSET:
-                updates.append("monthly_limit=?")
-                values.append(monthly_limit)
-            if updates:
-                values.append(group_id)
-                c.execute(
-                    f"UPDATE expense_groups SET {', '.join(updates)} WHERE id=?",
-                    values,
-                )
+            c.execute(sql, params)
 
     def delete_expense_group(self, group_id: str) -> None:
         """Удаляет группу; расходы этой группы не удаляются — становятся

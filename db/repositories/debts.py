@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from db.query import _UNSET, build_update
 from db.repositories.base import _Repo
 
 
@@ -33,19 +34,16 @@ class DebtRepo(_Repo):
         self, debt_id: int, *, title: str | None = None, total_amount: float | None = None,
         monthly_payment: float | None = None, payment_half: int | None = None,
     ) -> None:
-        updates, values = [], []
-        for col, val in (
-            ("title", title), ("total_amount", total_amount),
-            ("monthly_payment", monthly_payment), ("payment_half", payment_half),
-        ):
-            if val is not None:
-                updates.append(f"{col}=?")
-                values.append(val)
-        if not updates:
+        sql, params = build_update("debts", {
+            "title": title if title is not None else _UNSET,
+            "total_amount": total_amount if total_amount is not None else _UNSET,
+            "monthly_payment": monthly_payment if monthly_payment is not None else _UNSET,
+            "payment_half": payment_half if payment_half is not None else _UNSET,
+        }, {"id": debt_id})
+        if sql is None:
             return
-        values.append(debt_id)
         with self._tx() as c:
-            c.execute(f"UPDATE debts SET {', '.join(updates)} WHERE id=?", values)
+            c.execute(sql, params)
 
     def get_debts(self) -> list[dict]:
         with self._tx() as c:

@@ -1,14 +1,15 @@
 """db.query — SQL-примитивы пакета без внешних зависимостей.
 
 Единственное место, где определён ``_UNSET`` (сентинел трёхзначных PATCH-полей),
-общий для расходов и доходов SQL-фрагмент проекции повторов и хелпер выборки
-переопределений суммы за конкретный месяц. ``build_update`` (общий сборщик
-partial-UPDATE) добавляется отдельной стадией.
+общий для расходов и доходов SQL-фрагмент проекции повторов, хелпер выборки
+переопределений суммы за месяц и ``build_update`` — общий сборщик частичного
+UPDATE (что было размазано по нескольким ручным SET-конструкторам).
 """
 
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 # Сентинел для трёхзначных PATCH-полей: отличает "аргумент не передан"
 # (оставить как есть) от "передан явный None" (очистить значение в БД).
@@ -46,3 +47,26 @@ def period_overrides(c: sqlite3.Connection, kind: str, year: int,
             "WHERE kind=? AND year=? AND month=?", (kind, year, month)
         ).fetchall()
     }
+
+
+def build_update(
+    table: str, fields: dict[str, Any], where: dict[str, Any],
+) -> tuple[str | None, list[Any]]:
+    """Сборщик частичного UPDATE.
+
+    ``fields``: ``{колонка: значение | _UNSET}`` — колонки со значением ``_UNSET``
+    пропускаются; любое другое значение (включая ``None`` -> ``NULL``) пишется.
+    ``where``: ``{колонка: значение}`` — AND-равенства (обычно ``{"id": row_id}``).
+
+    Возвращает ``(sql, params)`` либо ``(None, [])``, когда менять нечего —
+    вызывающий делает ранний ``return`` (как старое ``if not updates: return``).
+    Порядок колонок в SET = порядок ключей ``fields`` (совпадает со старым
+    ручным ``updates.append`` -> строка SQL идентична).
+    """
+    cols = [(c, v) for c, v in fields.items() if v is not _UNSET]
+    if not cols:
+        return None, []
+    set_sql = ", ".join(f"{c}=?" for c, _ in cols)
+    where_sql = " AND ".join(f"{c}=?" for c in where)
+    sql = f"UPDATE {table} SET {set_sql} WHERE {where_sql}"  # noqa: S608 — идентификаторы литеральны
+    return sql, [v for _, v in cols] + list(where.values())
