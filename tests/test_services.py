@@ -260,6 +260,43 @@ class TestAnalytics:
             (10, 2024), (11, 2024), (12, 2024), (1, 2025), (2, 2025)
         ]
 
+    def test_category_diff_vs_previous_month(self, service: FinanceService):
+        g = service.create_expense_group(name="Еда", color="#aa0000")
+        service.create_expense(name="x", amount=1000, half=1, month=4, year=2025, group_id=g["id"])
+        service.create_expense(name="y", amount=1600, half=1, month=5, year=2025, group_id=g["id"])
+
+        d = service.category_diff(5, 2025)
+        assert d["prevMonth"] == 4 and d["month"] == 5
+        assert d["totalDelta"] == pytest.approx(600)
+        eda = next(c for c in d["categories"] if c["name"] == "Еда")
+        assert eda["current"] == 1600 and eda["previous"] == 1000 and eda["delta"] == 600
+
+    def test_category_diff_january_crosses_year(self, service: FinanceService):
+        d = service.category_diff(1, 2025)
+        assert (d["prevMonth"], d["prevYear"]) == (12, 2024)
+
+
+class TestExport:
+    def test_csv_has_all_sections_and_rows(self, service: FinanceService, add_salary):
+        add_salary(120000)
+        service.create_expense(name="Кофе", amount=250, half=1, month=6, year=2025)
+        service.create_income(name="Фриланс", amount=15000, half=2, month=6, year=2025)
+        service.create_vacation(total_amount=40000, payout_date="2025-06-10")
+        service.create_debt(title="Займ", total_amount=5000, month=1, year=2025)
+
+        csv = service.export_csv(month=6, year=2025)
+        assert "РАСХОДЫ" in csv and "ДОХОДЫ" in csv
+        assert "ОТПУСКНЫЕ" in csv and "ДОЛГИ" in csv
+        assert "Кофе;250" in csv
+        assert "Фриланс;15000" in csv and "прочее" in csv
+        assert "зарплата" in csv                      # оклад-строка
+        assert "Займ;5000" in csv
+
+    def test_csv_all_time_scope(self, service: FinanceService):
+        service.create_expense(name="a", amount=1, half=1, month=1, year=2024)
+        csv = service.export_csv()
+        assert "всё время" in csv
+
     def test_all_time_summary_expands_recurring_monthly(self, service: FinanceService):
         # Повтор с мая 2025 по «сегодня» (тест идёт 2026-09) — за период
         # считается один раз, за всё время должен развернуться помесячно.

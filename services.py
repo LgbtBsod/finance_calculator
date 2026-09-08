@@ -434,6 +434,51 @@ class FinanceService:
     def analytics_trend(self, month: int, year: int, months: int = 6) -> dict:
         return self.k.request("finance", "analytics_trend", month=month, year=year, months=months)
 
+    def category_diff(self, month: int, year: int) -> dict:
+        """Изменение расходов по категориям к прошлому месяцу."""
+        return self.k.request("finance", "category_diff", month=month, year=year)
+
+    # ═══════════════════════ экспорт ═══════════════════════
+
+    def export_csv(self, *, month: int | None = None, year: int | None = None) -> str:
+        """CSV со всеми записями за период (month/year) или за всё время.
+        Один файл, секции: расходы, доходы, отпускные, долги."""
+        import csv
+        import io
+
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=";")
+        groups = {g["id"]: g["name"] for g in self.list_expense_groups()}
+        scope = f"{month:02d}.{year}" if month and year else "всё время"
+        w.writerow([f"Финансовый калькулятор — экспорт ({scope})"])
+
+        w.writerow([])
+        w.writerow(["РАСХОДЫ", "сумма", "половина", "месяц", "год", "группа", "повтор"])
+        for e in self.list_expenses(month, year):
+            w.writerow([e["name"], e["amount"], e["half"], e["month"], e["year"],
+                        groups.get(e["groupId"], ""), "да" if e["isRecurring"] else ""])
+
+        w.writerow([])
+        w.writerow(["ДОХОДЫ", "сумма", "тип", "половина", "месяц", "год", "повтор"])
+        for i in self.list_income(month, year):
+            w.writerow([i["name"], i["amount"],
+                        "зарплата" if i["kind"] == "salary" else "прочее",
+                        i["half"], i["month"], i["year"], "да" if i["isRecurring"] else ""])
+
+        w.writerow([])
+        w.writerow(["ОТПУСКНЫЕ", "сумма", "дата выплаты", "начало", "конец"])
+        for v in self.list_vacations(month, year):
+            w.writerow([v["totalAmount"], v["payoutDate"], v.get("startDate") or "",
+                        v.get("endDate") or ""])
+
+        w.writerow([])
+        w.writerow(["ДОЛГИ", "сумма", "остаток", "плановый платёж", "погашено"])
+        for d in self.list_debts():
+            w.writerow([d["title"], d["totalAmount"], d["remainingAmount"],
+                        d["monthlyPayment"], d["repaidAmount"]])
+
+        return buf.getvalue()
+
     # ═══════════════════════ calendar ═══════════════════════
 
     def ensure_calendar_year(self, year: int) -> None:

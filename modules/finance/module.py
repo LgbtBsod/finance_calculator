@@ -54,6 +54,7 @@ class FinanceModule(Module):
             "balance": self._balance,
             "analytics_summary": self._analytics_summary,
             "analytics_trend": self._analytics_trend,
+            "category_diff": self._category_diff,
             "settings_get": self._settings_get,
             "settings_update": self._settings_update,
         }
@@ -207,6 +208,39 @@ class FinanceModule(Module):
                 {"month": pm, "year": py, "total": sum(by_group.values()), "categories": categories}
             )
         return {"months": out}
+
+    # ── изменение к прошлому месяцу ───────────────────────────
+
+    def _category_diff(self, month: int, year: int) -> dict:
+        key = f"analytics:diff:{year}-{month:02d}"
+        return self._cached(key, lambda: self._compute_diff(month, year))
+
+    def _compute_diff(self, month: int, year: int) -> dict:
+        prev_m, prev_y = (12, year - 1) if month == 1 else (month - 1, year)
+        cur = {c["groupId"]: c for c in self._compute_summary(month, year)["categories"]}
+        prev = {c["groupId"]: c for c in self._compute_summary(prev_m, prev_y)["categories"]}
+
+        rows: list[dict] = []
+        for gid in {*cur, *prev}:
+            c_amt = cur.get(gid, {}).get("amount", 0.0)
+            p_amt = prev.get(gid, {}).get("amount", 0.0)
+            meta = cur.get(gid) or prev.get(gid)
+            rows.append({
+                "groupId": gid,
+                "name": meta["name"],
+                "color": meta["color"],
+                "current": c_amt,
+                "previous": p_amt,
+                "delta": c_amt - p_amt,
+            })
+        rows.sort(key=lambda r: abs(r["delta"]), reverse=True)
+        cur_total = sum(r["current"] for r in rows)
+        prev_total = sum(r["previous"] for r in rows)
+        return {
+            "month": month, "year": year, "prevMonth": prev_m, "prevYear": prev_y,
+            "currentTotal": cur_total, "previousTotal": prev_total,
+            "totalDelta": cur_total - prev_total, "categories": rows,
+        }
 
     # ── settings ─────────────────────────────────────────────
 

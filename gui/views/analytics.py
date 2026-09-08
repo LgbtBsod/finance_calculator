@@ -1,4 +1,5 @@
-"""Экран «Аналитика»: сумма за период, тренд по месяцам, расходы по категориям."""
+"""Экран «Аналитика»: сумма за период, тренд, категории, изменение к прошлому
+месяцу, экспорт CSV."""
 
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ from ..theme import COLORS
 from ..widgets import (
     card,
     empty_state,
+    ghost_button,
     hint,
     money_text,
     month_dropdown,
@@ -17,6 +19,10 @@ from ..widgets import (
     year_dropdown,
 )
 from ._base import View
+
+
+def _signed(v: float) -> str:
+    return ("+" if v > 0 else "−" if v < 0 else "") + format_currency(abs(v))
 
 _TREND_MONTHS = 6
 
@@ -56,6 +62,10 @@ class AnalyticsView(View):
         blocks: list[ft.Control] = [picker, total_card,
                                     section_title("Тренд по месяцам"), self._trend_chart(trend)]
 
+        if not self.all_time:
+            blocks += [section_title("Изменение к прошлому месяцу"),
+                       self._diff_card(self.svc.category_diff(self.month, self.year))]
+
         blocks.append(section_title(
             "Расходы по категориям — за всё время" if self.all_time
             else "Расходы по категориям"
@@ -64,7 +74,64 @@ class AnalyticsView(View):
             blocks.append(card(empty_state("Нет данных для отображения")))
         else:
             blocks.append(self._categories(summary["categories"], summary["total"]))
+
+        blocks.append(card(
+            hint("Выгрузить все записи (расходы, доходы, отпускные, долги) в CSV — "
+                 "открывается в Excel / Google Таблицах."),
+            ft.Row([
+                ghost_button("Экспорт за период", lambda e: self._export(self.month, self.year),
+                             icon=ft.Icons.DOWNLOAD_OUTLINED),
+                ghost_button("Экспорт за всё время", lambda e: self._export(None, None),
+                             icon=ft.Icons.DOWNLOAD_FOR_OFFLINE_OUTLINED),
+            ], spacing=8, wrap=True),
+        ))
         return blocks
+
+    def _export(self, month, year) -> None:
+        from datetime import date
+
+        from paths import app_dir, open_in_file_manager
+
+        try:
+            text = self.svc.export_csv(month=month, year=year)
+            out_dir = app_dir / "exports"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            tag = f"{year}-{month:02d}" if month and year else "all"
+            path = out_dir / f"finance-{tag}-{date.today():%Y%m%d}.csv"
+            path.write_text(text, encoding="utf-8-sig")
+        except Exception as exc:  # noqa: BLE001
+            self.toast(f"Не удалось экспортировать: {exc}", error=True)
+            return
+        self.toast(f"Сохранено: {path.name}")
+        open_in_file_manager(path.parent)
+
+    def _diff_card(self, diff: dict) -> ft.Container:
+        total = diff["totalDelta"]
+        colr = COLORS["danger"] if total > 0 else COLORS["success"] if total < 0 else COLORS["text"]
+        head = ft.Row(
+            [
+                ft.Text(f"{MONTH_NAMES_RU[diff['prevMonth']]} → {MONTH_NAMES_RU[diff['month']]}",
+                        size=12, color=COLORS["text_secondary"]),
+                ft.Text(_signed(total), size=16, weight=ft.FontWeight.W_700, color=colr),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        )
+        rows: list[ft.Control] = [head, ft.Divider(height=8, color=COLORS["border"])]
+        movers = [c for c in diff["categories"] if abs(c["delta"]) >= 1][:6]
+        if not movers:
+            rows.append(hint("Расходы по категориям почти не изменились."))
+        for c in movers:
+            d = c["delta"]
+            rows.append(ft.Row(
+                [
+                    ft.Row([ft.Container(width=8, height=8, bgcolor=c["color"], border_radius=999),
+                            ft.Text(c["name"], size=12, color=COLORS["text"])], spacing=6),
+                    ft.Text(_signed(d), size=12, weight=ft.FontWeight.W_600,
+                            color=COLORS["danger"] if d > 0 else COLORS["success"]),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ))
+        return card(ft.Column(rows, spacing=6, tight=True))
 
     def _toggle_all_time(self, e) -> None:
         self.all_time = e.control.value

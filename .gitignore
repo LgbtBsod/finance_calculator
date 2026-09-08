@@ -23,6 +23,7 @@ gui_prefs.json
 app.lock
 logs/
 backups/
+exports/
 .update_backup/
 .upload/
 
