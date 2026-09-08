@@ -57,6 +57,7 @@ class Database:
         self.db_path = db_path
         self._engine = Engine(db_path)
         bootstrap(self._engine)
+        self._engine.invalidate_all()   # миграции DELETE-ят settings — кэш начинаем с чистого
         self._settings = SettingsRepo(self._engine)
         self._calendar = CalendarRepo(self._engine)
         self._birthdays = BirthdayRepo(self._engine)

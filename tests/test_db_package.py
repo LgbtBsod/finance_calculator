@@ -106,3 +106,92 @@ class TestBuildUpdate:
             ("title", "total_amount", "monthly_payment", "payment_half"), _UNSET,
         ), {"id": 5})
         assert sql is None and params == []
+
+
+class TestReadThroughCache:
+    """Engine кэширует ровно 2 горячих целотабличных чтения; write-путь по
+    settings / expense_groups сам сбрасывает соответствующий ключ."""
+
+    def _db(self):
+        db = Database(":memory:")
+        return db
+
+    def test_settings_bundle_is_served_from_cache(self):
+        db = self._db()
+        try:
+            first = db.get_settings_bundle()
+            # пишем в обход set_setting -> инвалидации НЕ будет
+            with db._transaction() as c:
+                c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('tax_rate', '99')")
+            assert db.get_settings_bundle() == first          # всё ещё из кэша
+            assert db.get_settings_bundle()["tax_rate"] != "99"
+        finally:
+            db.close()
+
+    def test_set_setting_invalidates_bundle(self):
+        db = self._db()
+        try:
+            db.get_settings_bundle()
+            db.set_setting("tax_rate", "17")
+            assert db.get_settings_bundle()["tax_rate"] == "17"
+        finally:
+            db.close()
+
+    def test_group_writes_invalidate_group_cache(self):
+        db = self._db()
+        try:
+            assert db.get_expense_groups() == []
+            db.create_expense_group("g1", "Еда", "#111")
+            assert [g["id"] for g in db.get_expense_groups()] == ["g1"]
+            db.update_expense_group("g1", name="Продукты")
+            assert db.get_expense_groups()[0]["name"] == "Продукты"
+            db.delete_expense_group("g1")
+            assert db.get_expense_groups() == []
+        finally:
+            db.close()
+
+    def test_restore_deleted_group_invalidates_cache(self):
+        db = self._db()
+        try:
+            db.create_expense_group("g1", "Еда", "#111")
+            snap = db.snapshot_for_undo("expense_group", "g1")
+            db.delete_expense_group("g1")
+            assert db.get_expense_groups() == []
+            db.restore_from_undo(snap)
+            assert [g["id"] for g in db.get_expense_groups()] == ["g1"]
+        finally:
+            db.close()
+
+    def test_returned_objects_are_independent_copies(self):
+        db = self._db()
+        try:
+            db.create_expense_group("g1", "Еда", "#111")
+            first = db.get_expense_groups()
+            first[0]["name"] = "МУТАЦИЯ"
+            first.append({"junk": True})
+            assert db.get_expense_groups()[0]["name"] == "Еда"
+            assert len(db.get_expense_groups()) == 1
+
+            b1 = db.get_settings_bundle()
+            b1["tax_rate"] = "МУТАЦИЯ"
+            assert db.get_settings_bundle()["tax_rate"] != "МУТАЦИЯ"
+        finally:
+            db.close()
+
+
+class TestUndoTablesIntegrity:
+    def test_undo_column_tuples_are_subset_of_actual_schema(self):
+        """_UNDO_TABLES перечисляет колонки для INSERT OR IGNORE при восстановлении —
+        если схема уедет, восстановление молча потеряет данные или упадёт."""
+        from db.repositories.undo import _UNDO_TABLES
+
+        db = Database(":memory:")
+        try:
+            with db._transaction() as c:
+                for _kind, (table, cols) in _UNDO_TABLES.items():
+                    actual = {r["name"] for r in c.execute(
+                        f"PRAGMA table_info({table})"
+                    ).fetchall()}
+                    assert set(cols) <= actual, f"{table}: {set(cols) - actual}"
+        finally:
+            db.close()

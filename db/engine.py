@@ -1,24 +1,34 @@
 """db.engine — ядро доступа к SQLite: жизненный цикл соединения, транзакция,
-безопасная резервная копия. НЕ содержит entity-SQL и DDL (это schema.py /
-migrations.py / repositories/*). Read-through кэш добавляется отдельной стадией.
+безопасная резервная копия, read-through кэш горячих чтений.
+
+НЕ содержит entity-SQL и DDL (это schema.py / migrations.py / repositories/*).
 
 Конкурентный доступ: оптимистическая блокировка (version/row-versioning для
 конфликтов при одновременном редактировании) сознательно НЕ реализована —
 приложение однопользовательское, побеждает последняя запись (last-write-wins).
+Кэш живёт на Engine (НЕ на соединении: для файловой БД соединение
+пересоздаётся на каждый _transaction, а кэш должен переживать). Два экземпляра
+Engine на одном файле (тест backup, run.bat дважды) кэш не разделяют — для
+однопользовательского инструмента с last-write-wins это приемлемо.
 """
 
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Generator
+import threading
+from collections.abc import Callable, Generator
 from contextlib import contextmanager, suppress
 from pathlib import Path
+from typing import Any
 
 
 class Engine:
     def __init__(self, db_path: str = "budget.db") -> None:
         self.db_path = db_path
         self._conn_cache: sqlite3.Connection | None = None
+        self._read_cache: dict[str, Any] = {}
+        self._cache_lock = threading.Lock()
+        self._cache_gen = 0
         if db_path != ":memory:":
             # sqlite не создаёт отсутствующие директории — заводим сами,
             # чтобы БД в подпапке (db/budget.db) открывалась «из коробки».
@@ -60,7 +70,9 @@ class Engine:
                 self._conn_cache = None
 
     @contextmanager
-    def _transaction(self) -> Generator[sqlite3.Connection, None, None]:
+    def _transaction(
+        self, *, invalidates: tuple[str, ...] = (),
+    ) -> Generator[sqlite3.Connection, None, None]:
         c = self._conn()
         try:
             yield c
@@ -72,6 +84,41 @@ class Engine:
         finally:
             if self.db_path != ":memory:":
                 c.close()
+        # Достижимо только при успешном commit (в except — raise). Чистим кэш
+        # после фиксации и закрытия файлового соединения.
+        if invalidates:
+            self.invalidate(*invalidates)
+
+    # ── read-through кэш горячих целотабличных чтений ─────────
+
+    def read_cached(self, key: str, loader: Callable[[], Any]) -> Any:
+        """Вернуть кэшированное «сырое» значение по ключу либо загрузить через
+        ``loader()`` (сам открывает ``_transaction``). Вызывающий репозиторий
+        делает КОПИЮ на выход — объект в кэше общий и не должен мутироваться.
+
+        Если во время ``loader()`` прошла инвалидация (изменилось поколение),
+        свежезагруженное значение НЕ кладём в кэш — вернём его этому вызову,
+        следующий перечитает."""
+        with self._cache_lock:
+            if key in self._read_cache:
+                return self._read_cache[key]
+            gen = self._cache_gen
+        value = loader()
+        with self._cache_lock:
+            if gen == self._cache_gen:
+                self._read_cache.setdefault(key, value)
+            return self._read_cache.get(key, value)
+
+    def invalidate(self, *keys: str) -> None:
+        with self._cache_lock:
+            self._cache_gen += 1
+            for k in keys:
+                self._read_cache.pop(k, None)
+
+    def invalidate_all(self) -> None:
+        with self._cache_lock:
+            self._cache_gen += 1
+            self._read_cache.clear()
 
     # ── backup ───────────────────────────────────────────────
 

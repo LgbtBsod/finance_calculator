@@ -65,7 +65,9 @@ class UndoRepo(_Repo):
         table, cols = _UNDO_TABLES[kind]
         row = snapshot["row"]
         placeholders = ", ".join(f":{col}" for col in cols)
-        with self._tx() as c:
+        # восстановление группы возвращает строку в expense_groups -> сброс кэша
+        inval = ("expense_groups",) if kind == "expense_group" else ()
+        with self._tx(invalidates=inval) as c:
             c.execute(
                 f"INSERT OR IGNORE INTO {table} ({', '.join(cols)}) "  # noqa: S608
                 f"VALUES ({placeholders})",
