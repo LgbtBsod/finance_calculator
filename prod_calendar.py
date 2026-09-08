@@ -118,26 +118,6 @@ class WorkalendarAdapter(CalendarProvider):
         import work_calendar as _wc
 
         self._is_workday = _wc.is_workday
-        self._days_off_cache: dict[int, set[date]] = {}
-
-    def _get_days_off(self, year: int) -> set[date]:
-        """Кэшируем множество выходных дней для года."""
-        if year not in self._days_off_cache:
-            days_off: set[date] = set()
-            for m in range(1, 13):
-                _, mdim = cal_lib.monthrange(year, m)
-                for d in range(1, mdim + 1):
-                    dt = date(year, m, d)
-                    try:
-                        if not self._is_workday(dt):
-                            days_off.add(dt)
-                    except Exception:
-                        logger.warning(
-                            "work-calendar: нет данных для %s",
-                            dt,
-                        )
-            self._days_off_cache[year] = days_off
-        return self._days_off_cache[year]
 
     def classify(self, d: date) -> DayKind:
         try:

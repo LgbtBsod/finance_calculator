@@ -400,11 +400,21 @@ class DatabaseManager:
     #  CALENDAR DATA (кэш)
     # ═════════════════════════════════════════════════════════
 
+    @staticmethod
+    def _year_bounds(year: int) -> tuple[str, str]:
+        return f"{year:04d}-01-01", f"{year + 1:04d}-01-01"
+
+    @staticmethod
+    def _month_bounds(year: int, month: int) -> tuple[str, str]:
+        nxt = (year + 1, 1) if month == 12 else (year, month + 1)
+        return f"{year:04d}-{month:02d}-01", f"{nxt[0]:04d}-{nxt[1]:02d}-01"
+
     def calendar_needs_fill(self, year: int) -> bool:
+        lo, hi = self._year_bounds(year)
         with self._transaction() as c:
             n = c.execute(
-                "SELECT COUNT(*) AS c FROM calendar_data WHERE date LIKE ?",
-                (f"{year}-%",),
+                "SELECT COUNT(*) AS c FROM calendar_data WHERE date >= ? AND date < ?",
+                (lo, hi),
             ).fetchone()["c"]
             return n == 0
 
@@ -417,19 +427,17 @@ class DatabaseManager:
             )
 
     def clear_calendar_cache(self, year: int) -> None:
+        lo, hi = self._year_bounds(year)
         with self._transaction() as c:
-            c.execute(
-                "DELETE FROM calendar_data WHERE date LIKE ?",
-                (f"{year}-%",),
-            )
+            c.execute("DELETE FROM calendar_data WHERE date >= ? AND date < ?", (lo, hi))
 
     def get_calendar_month(self, year: int, month: int) -> list[CalendarRow]:
+        lo, hi = self._month_bounds(year, month)
         with self._transaction() as c:
-            prefix = f"{year}-{month:02d}"
             rows = c.execute(
                 "SELECT date, is_working, is_holiday, is_shortened "
-                "FROM calendar_data WHERE date LIKE ? ORDER BY date",
-                (f"{prefix}%",),
+                "FROM calendar_data WHERE date >= ? AND date < ? ORDER BY date",
+                (lo, hi),
             ).fetchall()
             return [CalendarRow(**dict(r)) for r in rows]
 
@@ -446,10 +454,10 @@ class DatabaseManager:
 
     def save_corrections(self, year: int, rows: list[tuple]) -> None:
         """rows = [(date_iso, kind, source), ...]"""
+        lo, hi = self._year_bounds(year)
         with self._transaction() as c:
             c.execute(
-                "DELETE FROM calendar_corrections WHERE date LIKE ?",
-                (f"{year}-%",),
+                "DELETE FROM calendar_corrections WHERE date >= ? AND date < ?", (lo, hi)
             )
             if rows:
                 c.executemany(
@@ -905,25 +913,24 @@ class DatabaseManager:
     def get_debts(self) -> list[dict]:
         with self._transaction() as c:
             rows = c.execute(
-                "SELECT d.id, d.title, d.total_amount, d.month, d.year, d.created_at, "
-                "d.monthly_payment, d.payment_half, "
-                "(SELECT COALESCE(SUM(r.amount), 0) FROM debt_repayments r WHERE r.debt_id = d.id) as repaid_amount "
-                "FROM debts d ORDER BY d.year, d.month, d.created_at"
+                "SELECT id, title, total_amount, month, year, created_at, "
+                "monthly_payment, payment_half FROM debts ORDER BY year, month, created_at"
             ).fetchall()
-            # Один запрос всех погашений сразу, а не по одному на каждый
-            # долг в цикле (N+1) — группируем в Python по debt_id.
-            all_repayments = c.execute(
-                "SELECT id, debt_id, amount, date, note FROM debt_repayments ORDER BY date"
-            ).fetchall()
+            # Один запрос всех погашений, группируем в Python по debt_id —
+            # и repaid_amount считаем отсюда же (без коррелированного подзапроса).
             repayments_by_debt: dict[int, list[dict]] = {}
-            for r in all_repayments:
+            for r in c.execute(
+                "SELECT id, debt_id, amount, date, note FROM debt_repayments ORDER BY date"
+            ).fetchall():
                 repayments_by_debt.setdefault(r["debt_id"], []).append(dict(r))
 
             debts = []
             for row in rows:
                 debt = dict(row)
+                reps = repayments_by_debt.get(debt["id"], [])
+                debt["repaid_amount"] = sum(r["amount"] for r in reps)
                 debt["remaining_amount"] = max(0.0, debt["total_amount"] - debt["repaid_amount"])
-                debt["repayments"] = repayments_by_debt.get(debt["id"], [])
+                debt["repayments"] = reps
                 debts.append(debt)
             return debts
 

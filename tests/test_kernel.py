@@ -139,6 +139,35 @@ class TestLifecycle:
         with pytest.raises(KernelError):
             k.initialize()
 
+    def test_init_order_is_toposorted_regardless_of_registration_order(self):
+        # регистрируем «needy» ПЕРЕД «other», хотя needy требует other
+        k = Kernel()
+        k.register("needy", NeedsOther())
+        k.register("other", Other())
+        k.initialize()
+        assert k._order.index("other") < k._order.index("needy")
+
+    def test_requires_cycle_raises(self):
+        class A(Module):
+            name = "a"
+            requires = ("b",)
+
+            def initialize(self) -> None:
+                self._actions = {}
+
+        class B(Module):
+            name = "b"
+            requires = ("a",)
+
+            def initialize(self) -> None:
+                self._actions = {}
+
+        k = Kernel()
+        k.register("a", A())
+        k.register("b", B())
+        with pytest.raises(KernelError):
+            k.initialize()
+
     def test_register_frozen_after_init(self):
         k = _kernel(Echo(), Other())
         with pytest.raises(KernelError):

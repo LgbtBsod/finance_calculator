@@ -121,6 +121,9 @@ class Kernel:
                             name, "initialize",
                             f"модулю '{name}' нужен незарегистрированный модуль '{dep}'",
                         )
+            # Порядок init выводим из requires (зависимости раньше) —
+            # не полагаемся на ручную корректность порядка регистрации.
+            self._order = self._topo_order()
             for name in self._order:
                 mod = self._modules[name]
                 if hasattr(mod, "initialize"):
@@ -128,6 +131,29 @@ class Kernel:
                     mod.initialize()
             self._frozen = True
             self._initialized = True
+
+    def _topo_order(self) -> list[str]:
+        """Топологическая сортировка по ``requires``. При равных приоритетах
+        сохраняет порядок регистрации. Цикл → KernelError."""
+        indeg = dict.fromkeys(self._order, 0)
+        adj: dict[str, list[str]] = {n: [] for n in self._order}
+        for n in self._order:
+            for dep in getattr(self._modules[n], "requires", ()):
+                adj[dep].append(n)
+                indeg[n] += 1
+        ready = [n for n in self._order if indeg[n] == 0]
+        out: list[str] = []
+        while ready:
+            n = ready.pop(0)
+            out.append(n)
+            for m in adj[n]:
+                indeg[m] -= 1
+                if indeg[m] == 0:
+                    ready.append(m)
+        if len(out) != len(self._order):
+            cycle = [n for n in self._order if n not in out]
+            raise KernelError(cycle[0], "initialize", f"цикл в requires: {cycle}")
+        return out
 
     def shutdown(self) -> None:
         with self._lock:
@@ -182,7 +208,10 @@ class Kernel:
         if module is None:
             raise UnknownModuleError(target, sorted(self._modules))
 
-        logger.debug("%s", Message(source=source, target=target, action=action, payload=payload))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "%s", Message(source=source, target=target, action=action, payload=payload)
+            )
 
         ctx = self._ctx
         ctx.depth += 1

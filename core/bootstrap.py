@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from core.kernel import Kernel
 
-# Порядок важен: db открывает соединение/миграции; finance гаснет раньше db.
+# Порядок РЕГИСТРАЦИИ (порядок init/shutdown ядро выводит из requires —
+# см. Kernel._topo_order).
 _ORDER = ("db", "cache", "calendar", "calculator", "birthdays", "finance", "updater")
 
 

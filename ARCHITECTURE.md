@@ -47,7 +47,7 @@
 | `messages.py` | `Message` / `Event` (frozen dataclass) |
 | `errors.py` | `KernelError`, `UnknownActionError`, `PayloadError`, `UserFacingError`/`ValidationError` |
 | `_validate.py` | проверка «плоских данных»: в payload запроса и данных события — только `str/int/float/bool/None/date/Decimal/list/dict/frozen dataclass`. `callable` и объекты → `PayloadError` (механически запрещает утечку ссылок между модулями) |
-| `bootstrap.py` | `build_kernel(db_path)` — единый источник порядка регистрации |
+| `bootstrap.py` | `build_kernel(db_path)` — регистрация модулей; порядок init/shutdown ядро выводит топосортом по `requires` (`Kernel._topo_order`), не по порядку регистрации |
 | `projection.py` | чистый прогноз погашения долга |
 | `validation.py` | валидация ввода (бросает `ValidationError`) |
 

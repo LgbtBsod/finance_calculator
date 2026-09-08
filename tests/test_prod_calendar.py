@@ -132,19 +132,6 @@ class TestWorkalendarAdapter:
             # Должны включать 2024
             assert 2024 in years or len(years) == 0
 
-    def test_cache_days_off(self):
-        """Проверка кэширования выходных дней."""
-        adapter = WorkalendarAdapter()
-
-        # Первый запрос
-        days_off_2024 = adapter._get_days_off(2024)
-        assert isinstance(days_off_2024, set)
-        assert len(days_off_2024) > 0
-
-        # Второй запрос должен использовать кэш
-        days_off_2024_cached = adapter._get_days_off(2024)
-        assert days_off_2024 is days_off_2024_cached
-
     def test_fallback_classification(self):
         """Проверка fallback классификации."""
         adapter = WorkalendarAdapter()
