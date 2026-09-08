@@ -3,6 +3,9 @@
 ЕДИНСТВЕННЫЙ модуль, знающий про SQL. После каждой записи шлёт
 ``db:changed`` (entity=...) — ядро диспатчит это событие после раскрутки
 верхнеуровневого request, вне открытой транзакции.
+
+Однотипные действия (проброс read, add -> {"id"}, delete с undo) генерируются
+из таблиц ниже — «какое действие какие сущности трогает» видно в одном месте.
 """
 
 from __future__ import annotations
@@ -13,21 +16,37 @@ from core.errors import ValidationError
 from core.module import Module
 from database import DatabaseManager
 
-# Тонкие read-действия: имя action -> имя метода DatabaseManager (просто проброс).
+# read-действие -> метод DatabaseManager (чистый проброс **kw).
 _READS = {
-    "get_setting": "get_setting",
-    "get_settings_bundle": "get_settings_bundle",
-    "get_expenses": "get_expenses",
-    "get_income": "get_income",
-    "get_expense_groups": "get_expense_groups",
-    "get_expense_group": "get_expense_group",
-    "get_vacations": "get_vacations",
-    "get_birthdays": "get_birthdays",
-    "get_debts": "get_debts",
-    "get_corrections": "get_corrections",
-    "calendar_needs_fill": "calendar_needs_fill",
-    "get_calendar_month": "get_calendar_month",
+    name: name for name in (
+        "get_setting", "get_settings_bundle", "get_expenses", "get_income",
+        "get_expense_groups", "get_expense_group", "get_vacations", "get_birthdays",
+        "get_debts", "get_corrections", "calendar_needs_fill", "get_calendar_month",
+    )
 }
+
+# add-действие -> (метод DatabaseManager, сущность для db:changed).
+# Возвращает {"id": <lastrowid>}.
+_ADDS = {
+    "add_expense": ("add_expense", "expenses"),
+    "add_income": ("add_income", "income"),
+    "add_vacation": ("add_vacation", "vacations"),
+    "add_birthday": ("add_birthday", "birthdays"),
+    "create_debt": ("create_debt", "debts"),
+    "add_debt_repayment": ("add_debt_repayment", "debts"),
+}
+
+# delete-действие -> (kind для снимка undo, метод, затронутые сущности).
+_UNDO_DELETES = {
+    "delete_expense": ("expense", "delete_expense", ("expenses",)),
+    "delete_income": ("income", "delete_income", ("income",)),
+    "delete_vacation": ("vacation", "delete_vacation", ("vacations",)),
+    "delete_birthday": ("birthday", "delete_birthday", ("birthdays",)),
+    "delete_debt": ("debt", "delete_debt", ("debts",)),
+    "delete_expense_group": ("expense_group", "delete_expense_group",
+                             ("expense_groups", "expenses")),  # расходы -> «без группы»
+}
+_RESTORE_ENTITIES = {kind: ents for kind, _m, ents in _UNDO_DELETES.values()}
 
 
 class DBModule(Module):
@@ -38,52 +57,26 @@ class DBModule(Module):
         self._db_path = db_path
         self.db: DatabaseManager | None = None
 
-    def _read(self, method_name: str):
-        """Обёртка-проброс read-метода DatabaseManager (замыкание над именем)."""
-        return lambda **kw: getattr(self.db, method_name)(**kw)
-
     def initialize(self) -> None:
         self.db = DatabaseManager(self._db_path)
         self._actions = {
-            # reads — тонкий проброс в DatabaseManager
-            **{action: self._read(method) for action, method in _READS.items()},
-            # settings write
+            **{a: self._proxy(m) for a, m in _READS.items()},
+            **{a: self._adder(m, e) for a, (m, e) in _ADDS.items()},
+            **{a: self._undo_deleter(k, m, e) for a, (k, m, e) in _UNDO_DELETES.items()},
             "set_setting": self._set_setting,
-            # expenses
-            "add_expense": self._add_expense,
             "update_expense": self._update_expense,
-            "delete_expense": self._delete_expense,
-            # income
-            "add_income": self._add_income,
             "update_income": self._update_income,
-            "delete_income": self._delete_income,
-            # переопределение суммы повтора на конкретный месяц
             "set_period_override": self._set_period_override,
             "clear_period_override": self._clear_period_override,
-            # undo удаления (снимок -> восстановление)
             "restore_deleted": self._restore_deleted,
-            # expense groups
             "create_expense_group": self._create_group,
             "update_expense_group": self._update_group,
-            "delete_expense_group": self._delete_group,
-            # vacations
-            "add_vacation": self._add_vacation,
-            "delete_vacation": self._delete_vacation,
-            # birthdays
-            "add_birthday": self._add_birthday,
             "update_birthday": self._update_birthday,
-            "delete_birthday": self._delete_birthday,
-            # debts
-            "create_debt": self._create_debt,
             "update_debt": self._update_debt,
-            "delete_debt": self._delete_debt,
-            "add_debt_repayment": self._add_repayment,
             "delete_debt_repayment": self._delete_repayment,
-            # calendar cache (пишет только calendar-модуль)
             "save_calendar_data": self._save_calendar_data,
             "clear_calendar_cache": self._clear_calendar_cache,
             "save_corrections": self._save_corrections,
-            # backup
             "backup_to": self._backup_to,
             "db_path": lambda: self._db_path,
         }
@@ -92,18 +85,41 @@ class DBModule(Module):
         if self.db is not None:
             self.db.close()
 
+    # ── генераторы однотипных действий ───────────────────────
+
+    def _proxy(self, method: str):
+        return lambda **kw: getattr(self.db, method)(**kw)
+
+    def _adder(self, method: str, entity: str):
+        def add(**kw: Any) -> dict:
+            new_id = getattr(self.db, method)(**kw)
+            self._changed(entity)
+            return {"id": new_id}
+        return add
+
+    def _undo_deleter(self, kind: str, method: str, entities: tuple[str, ...]):
+        def delete(**kw: Any) -> dict:
+            row_id = next(iter(kw.values()))          # единственный аргумент — id строки
+            snap = self.db.snapshot_for_undo(kind, row_id)
+            getattr(self.db, method)(row_id)
+            for e in entities:
+                self._changed(e)
+            return {"undo": snap}
+        return delete
+
+    def _restore_deleted(self, snapshot: dict) -> dict:
+        self.db.restore_from_undo(snapshot)
+        for e in _RESTORE_ENTITIES.get(snapshot.get("kind"), ()):
+            self._changed(e)
+        return {"restored": snapshot.get("kind")}
+
     # ── settings ─────────────────────────────────────────────
 
     def _set_setting(self, key: str, value: Any) -> None:
         self.db.set_setting(key, str(value))
         self._changed("settings")
 
-    # ── expenses ─────────────────────────────────────────────
-
-    def _add_expense(self, **kw: Any) -> dict:
-        new_id = self.db.add_expense(**kw)
-        self._changed("expenses")
-        return {"id": new_id}
+    # ── expenses / income (частичное обновление + понятная ошибка) ──
 
     def _update_expense(self, eid: int, **kw: Any) -> dict | None:
         try:
@@ -113,38 +129,6 @@ class DBModule(Module):
         self._changed("expenses")
         return next((e for e in self.db.get_expenses() if e["id"] == eid), None)
 
-    def _delete_expense(self, eid: int) -> dict:
-        return self._delete_undoable("expense", eid, self.db.delete_expense, ["expenses"])
-
-    # ── undo удаления ────────────────────────────────────────
-
-    def _delete_undoable(self, kind: str, row_id: Any, do_delete, entities: list[str]) -> dict:
-        """Снять снимок, удалить, разослать db:changed. Возвращает
-        {"undo": <снимок или None>} — GUI показывает «Отменить»."""
-        snap = self.db.snapshot_for_undo(kind, row_id)
-        do_delete(row_id)
-        for e in entities:
-            self._changed(e)
-        return {"undo": snap}
-
-    def _restore_deleted(self, snapshot: dict) -> dict:
-        self.db.restore_from_undo(snapshot)
-        entities = {
-            "expense": ["expenses"], "income": ["income"],
-            "expense_group": ["expense_groups", "expenses"],
-            "vacation": ["vacations"], "birthday": ["birthdays"], "debt": ["debts"],
-        }.get(snapshot.get("kind"), [])
-        for e in entities:
-            self._changed(e)
-        return {"restored": snapshot.get("kind")}
-
-    # ── income ───────────────────────────────────────────────
-
-    def _add_income(self, **kw: Any) -> dict:
-        new_id = self.db.add_income(**kw)
-        self._changed("income")
-        return {"id": new_id}
-
     def _update_income(self, iid: int, **kw: Any) -> dict | None:
         try:
             self.db.update_income(iid=iid, **kw)
@@ -152,9 +136,6 @@ class DBModule(Module):
             raise ValidationError("Доход не найден — возможно, удалён") from e
         self._changed("income")
         return next((i for i in self.db.get_income() if i["id"] == iid), None)
-
-    def _delete_income(self, iid: int) -> dict:
-        return self._delete_undoable("income", iid, self.db.delete_income, ["income"])
 
     def _set_period_override(self, kind: str, row_id: int, year: int,
                              month: int, amount: float) -> None:
@@ -165,7 +146,7 @@ class DBModule(Module):
         self.db.clear_period_override(kind, row_id, year, month)
         self._changed("expenses" if kind == "expense" else "income")
 
-    # ── expense groups ───────────────────────────────────────
+    # ── expense groups (возвращают саму строку) ──────────────
 
     def _create_group(self, **kw: Any) -> dict | None:
         self.db.create_expense_group(**kw)
@@ -177,63 +158,20 @@ class DBModule(Module):
         self._changed("expense_groups")
         return self.db.get_expense_group(group_id)
 
-    def _delete_group(self, group_id: str) -> dict:
-        # расходы группы становятся «без группы» — их восстановление отмены
-        # не касается (это отдельная правка), но событие нужно
-        return self._delete_undoable(
-            "expense_group", group_id, self.db.delete_expense_group,
-            ["expense_groups", "expenses"],
-        )
-
-    # ── vacations ────────────────────────────────────────────
-
-    def _add_vacation(self, **kw: Any) -> dict:
-        new_id = self.db.add_vacation(**kw)
-        self._changed("vacations")
-        return {"id": new_id}
-
-    def _delete_vacation(self, vid: int) -> dict:
-        return self._delete_undoable("vacation", vid, self.db.delete_vacation, ["vacations"])
-
-    # ── birthdays ────────────────────────────────────────────
-
-    def _add_birthday(self, **kw: Any) -> dict:
-        new_id = self.db.add_birthday(**kw)
-        self._changed("birthdays")
-        return {"id": new_id}
+    # ── прочие простые записи ────────────────────────────────
 
     def _update_birthday(self, bid: int, name: str, birth_date: str,
                          gift_amount: float) -> None:
         self.db.update_birthday(bid, name, birth_date, gift_amount)
         self._changed("birthdays")
 
-    def _delete_birthday(self, bid: int) -> dict:
-        return self._delete_undoable("birthday", bid, self.db.delete_birthday, ["birthdays"])
-
-    # ── debts ────────────────────────────────────────────────
-
-    def _create_debt(self, **kw: Any) -> dict:
-        debt_id = self.db.create_debt(**kw)
-        self._changed("debts")
-        return {"id": debt_id}
-
     def _update_debt(self, debt_id: int, **kw: Any) -> None:
         self.db.update_debt(debt_id, **kw)
         self._changed("debts")
 
-    def _delete_debt(self, debt_id: int) -> dict:
-        return self._delete_undoable("debt", debt_id, self.db.delete_debt, ["debts"])
-
-    def _add_repayment(self, **kw: Any) -> dict:
-        rid = self.db.add_debt_repayment(**kw)
-        self._changed("debts")
-        return {"id": rid}
-
     def _delete_repayment(self, repayment_id: int) -> None:
         self.db.delete_debt_repayment(repayment_id)
         self._changed("debts")
-
-    # ── calendar cache ───────────────────────────────────────
 
     def _save_calendar_data(self, year: int, rows: list) -> None:
         self.db.save_calendar_data(year, [tuple(r) for r in rows])
@@ -244,8 +182,6 @@ class DBModule(Module):
     def _save_corrections(self, year: int, rows: list) -> None:
         self.db.save_corrections(year, [tuple(r) for r in rows])
         self._changed("corrections")
-
-    # ── backup ───────────────────────────────────────────────
 
     def _backup_to(self, target_path: str) -> None:
         if self._db_path == ":memory:":

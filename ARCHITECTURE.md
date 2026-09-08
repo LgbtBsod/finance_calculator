@@ -88,6 +88,16 @@
 - `finance` кэширует `balance` / `analytics_*` в модуле `cache`, инвалидация по
   `db:changed`.
 
+### Модули не пересобирают данные
+
+- `calculator` отдаёт `SalaryBreakdown` / `BalanceResult` (frozen dataclass)
+  сквозь ядро как есть — потребитель (`finance`) читает поля по имени, без
+  промежуточной stringly-typed таблицы «поле → dict».
+- `modules/db` — декларативный: таблицы `_READS` / `_ADDS` / `_UNDO_DELETES`
+  задают «действие → метод БД → какие сущности трогает `db:changed`»;
+  однотипные хендлеры (проброс read, add → `{"id"}`, delete + undo)
+  генерируются фабриками, а не пишутся по одному.
+
 ### Зарплата — это доход (`income.kind='salary'`)
 
 Оклад НЕ настройка. Строка `income` c `kind='salary'` несёт параметры расчёта

@@ -75,11 +75,11 @@ class FinanceModule(Module):
         return self._cached(f"balance:{year}-{month:02d}", lambda: self._compute_balance(month, year))
 
     def _compute_balance(self, month: int, year: int) -> dict:
-        r = self.k.request("calculator", "balance", year=year, month=month)
-        s = r["salary"]
+        r = self.k.request("calculator", "balance", year=year, month=month)  # BalanceResult
+        s = r.salary                                                         # SalaryBreakdown
 
         # «Прочий доход» — только kind='fixed'; оклады (kind='salary') уже
-        # посчитаны SalaryCalculator и лежат в r["salary"].
+        # посчитаны SalaryCalculator и лежат в r.salary.
         income = [i for i in self.k.request("db", "get_income", month=month, year=year)
                   if i.get("kind", "fixed") == "fixed"]
         inc_h1 = sum(i["amount"] for i in income if i["half"] == 1)
@@ -95,31 +95,31 @@ class FinanceModule(Module):
         return {
             "month": month,
             "year": year,
-            "netSalary": s["net_salary"],
-            "advance": s["advance"],
-            "payout": s["payout"],
-            "vacationHalf1": s["vacation_half_1"],
-            "vacationHalf2": s["vacation_half_2"],
-            "totalAccrued": s["total_accrued"],
-            "toPayHalf1": s["to_pay_half_1"],
-            "toPayHalf2": s["to_pay_half_2"],
+            "netSalary": s.net_salary,
+            "advance": s.advance,
+            "payout": s.payout,
+            "vacationHalf1": s.vacation_half_1,
+            "vacationHalf2": s.vacation_half_2,
+            "totalAccrued": s.total_accrued,
+            "toPayHalf1": s.to_pay_half_1,
+            "toPayHalf2": s.to_pay_half_2,
             "incomeHalf1": inc_h1,
             "incomeHalf2": inc_h2,
-            "expensesHalf1": r["expenses_h1"],
-            "expensesHalf2": r["expenses_h2"],
+            "expensesHalf1": r.expenses_h1,
+            "expensesHalf2": r.expenses_h2,
             "debtPaymentHalf1": pay_h1,
             "debtPaymentHalf2": pay_h2,
-            "balanceHalf1": r["balance_h1"] + inc_h1 - pay_h1,
-            "balanceHalf2": r["balance_h2"] + inc_h2 - pay_h2,
-            "calculationMethod": s["calculation_method"],
-            "workingDaysHalf1": s["working_days_half_1"],
-            "workingDaysHalf2": s["working_days_half_2"],
-            "workingDaysTotal": s["working_days_total"],
-            "advanceCutoffDay": s["advance_cutoff_day"],
-            "payoutDate1": s["payout_date_1"],
-            "payoutDate2": s["payout_date_2"],
-            "payoutDate1Nominal": s["payout_date_1_nominal"],
-            "payoutDate2Nominal": s["payout_date_2_nominal"],
+            "balanceHalf1": r.balance_h1 + inc_h1 - pay_h1,
+            "balanceHalf2": r.balance_h2 + inc_h2 - pay_h2,
+            "calculationMethod": s.calculation_method,
+            "workingDaysHalf1": s.working_days_half_1,
+            "workingDaysHalf2": s.working_days_half_2,
+            "workingDaysTotal": s.working_days_total,
+            "advanceCutoffDay": s.advance_cutoff_day,
+            "payoutDate1": s.payout_date_1,
+            "payoutDate2": s.payout_date_2,
+            "payoutDate1Nominal": s.payout_date_1_nominal,
+            "payoutDate2Nominal": s.payout_date_2_nominal,
         }
 
     # ── analytics ────────────────────────────────────────────

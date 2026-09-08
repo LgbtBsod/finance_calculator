@@ -90,26 +90,26 @@ def _add_salary(kernel, amount, *, method="proportional", month=1, year=2000):
 
 
 class TestCalculatorModule:
-    def test_balance_shape(self, kernel):
+    def test_balance_returns_frozen_dataclass_through_kernel(self, kernel):
         _add_salary(kernel, 100000)
-        b = req(kernel, "calculator", "balance", year=2025, month=7)
-        assert set(b) == {"salary", "expenses_h1", "expenses_h2", "balance_h1", "balance_h2"}
-        assert b["salary"]["net_salary"] > 0
+        b = req(kernel, "calculator", "balance", year=2025, month=7)  # BalanceResult
+        assert b.salary.net_salary > 0
+        assert b.expenses_h1 == 0 and b.balance_h1 == b.salary.to_pay_half_1
 
     def test_no_salary_income_means_zero_salary(self, kernel):
         b = req(kernel, "calculator", "calculate", year=2025, month=7)
-        assert b["net_salary"] == 0.0
+        assert b.net_salary == 0.0
 
     def test_salary_income_drives_calculation(self, kernel):
         _add_salary(kernel, 200000)
         b = req(kernel, "calculator", "calculate", year=2025, month=7)
-        assert b["net_salary"] == pytest.approx(174000.0)   # 200000 * (1 - 0.13)
+        assert b.net_salary == pytest.approx(174000.0)   # 200000 * (1 - 0.13)
 
     def test_two_salaries_are_summed(self, kernel):
         _add_salary(kernel, 100000)
         _add_salary(kernel, 50000)
         b = req(kernel, "calculator", "calculate", year=2025, month=7)
-        assert b["net_salary"] == pytest.approx(150000 * 0.87)
+        assert b.net_salary == pytest.approx(150000 * 0.87)
 
 
 class TestBirthdaysModule:
