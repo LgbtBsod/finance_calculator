@@ -56,7 +56,7 @@ class SalaryCalculator:
         kef = float(self._get("kef") or 1.0)
         method = self._get("salary_calculation_method") or "proportional"
 
-        # Расчет зарплаты после налогов и коэффициента
+        # Полный оклад за месяц после налога и коэффициента (норма).
         net = base * kef * (1.0 - tax / 100.0)
 
         wd_h1 = wd_h2 = wd_total = None
@@ -65,8 +65,21 @@ class SalaryCalculator:
         # Распределение по половинам месяца в зависимости от метода
         match method:
             case "working_days" if self._calendar_reader:
-                wd_h1, wd_h2, wd_total = self._working_days_breakdown(year, month)
+                norm_total, norm_h1, norm_h2 = self._calendar_reader.get_working_days(year, month)
+                vac_wd_h1, vac_wd_h2 = self._vacation_working_days(year, month)
+                wd_h1 = max(0.0, norm_h1 - vac_wd_h1)
+                wd_h2 = max(0.0, norm_h2 - vac_wd_h2)
+                wd_total = wd_h1 + wd_h2
                 cutoff_day = int(self._get("advance_cutoff_day") or 15)
+
+                # ТК РФ: за дни отпуска платят отпускные, а не оклад — поэтому
+                # оклад за месяц уменьшается пропорционально отработанным дням
+                # (norm_total = норма рабочих дней месяца, wd_total = сколько
+                # реально отработано после вычета дней отпуска). Отпускные
+                # добавляются отдельно (см. _distribute_vacations).
+                if norm_total > 0:
+                    net = net * wd_total / norm_total
+
                 match wd_total:
                     case 0:
                         advance_ratio, payout_ratio = 0.4, 0.6  # fallback
@@ -117,33 +130,6 @@ class SalaryCalculator:
             working_days_total=wd_total,
             advance_cutoff_day=cutoff_day,
         )
-
-    def _working_days_breakdown(self, year: int, month: int) -> tuple[float, float, float]:
-        """Рабочие дни каждой половины месяца (после вычета дней отпуска).
-
-        Возвращает (h1, h2, total) по данным производственного календаря
-        (CalendarReader.get_working_days), который уже учитывает cutoff_day /
-        сокращённые дни через свои собственные настройки — дублировать эту
-        логику здесь не нужно (DRY). Используется и для пропорции выплаты,
-        и для отображения "как посчитано" на фронтенде.
-
-        Дни отпуска, попавшие в этот месяц, вычитаются из отработанных дней
-        каждой половины — ровно так же, как в исходной таблице финансового
-        менеджера (там это было ручной коррекцией G7=G2-G5, H7=H2-H5).
-        Сама выплата отпускных при этом остаётся отдельной надбавкой
-        (см. _distribute_vacations) — здесь мы только уменьшаем базу для
-        расчёта обычной зарплаты за отработанное время.
-        """
-        match self._calendar_reader:
-            case None:
-                return 0.0, 0.0, 0.0
-            case reader:
-                total, h1, h2 = reader.get_working_days(year, month)
-
-        vac_h1, vac_h2 = self._vacation_working_days(year, month)
-        h1 = max(0.0, h1 - vac_h1)
-        h2 = max(0.0, h2 - vac_h2)
-        return h1, h2, h1 + h2
 
     # ── даты выплат ──────────────────────────────────────────────
 

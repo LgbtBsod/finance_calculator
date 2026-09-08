@@ -105,3 +105,27 @@ class TestUpdaterModule:
     def test_current_version(self, kernel):
         v = req(kernel, "updater", "current_version")
         assert isinstance(v, str)
+
+    def test_check_skips_when_recently_checked(self, kernel):
+        from unittest.mock import patch
+
+        with patch("modules.updater.module._recently_checked", return_value=True):
+            res = req(kernel, "updater", "check", force=False)
+        assert res["skipped"] is True and res["has_update"] is False
+
+    def test_check_reports_update(self, kernel):
+        from unittest.mock import MagicMock, patch
+
+        fake = MagicMock()
+        fake.check_for_updates.return_value = (True, "9.9.9", "https://x/u.exe")
+        fake._rate_limited = False
+        fake._network_reachable = True
+        with patch("modules.updater.module._recently_checked", return_value=False), \
+             patch("modules.updater.module.AutoUpdater", return_value=fake), \
+             patch("modules.updater.module._mark_checked") as mark:
+            res = req(kernel, "updater", "check", force=True)
+        assert res == {
+            "has_update": True, "version": "9.9.9", "url": "https://x/u.exe",
+            "rate_limited": False, "reachable": True, "skipped": False,
+        }
+        mark.assert_called_once()

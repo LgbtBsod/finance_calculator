@@ -172,12 +172,13 @@ class TestWorkingDaysMethod:
         assert result.working_days_total is None
         assert result.advance_cutoff_day is None
 
-    def test_vacation_days_reduce_worked_day_base(
+    def test_vacation_days_reduce_salary_pro_rata_tk_rf(
         self, calculator: SalaryCalculator, db: DatabaseManager
     ):
-        """3 рабочих дня отпуска (7-9 июля 2025, пн-ср) должны уменьшить
-        базу 1-й половины с 11 до 8 дней — как ручная правка G7=G2-G5
-        в исходной таблице. Отпускные при этом добавляются отдельно."""
+        """ТК РФ: 3 рабочих дня отпуска (7-9 июля 2025, пн-ср). За эти дни
+        платят отпускные, а не оклад — поэтому оклад за месяц уменьшается
+        пропорционально: net * 20/23 (отработано 20 из 23 норм. дней), и
+        уже эта сумма делится по половинам. Отпускные — отдельная надбавка."""
         _set_common_settings(db, "working_days")
         db.add_vacation(
             total_amount=15000.0,
@@ -188,14 +189,19 @@ class TestWorkingDaysMethod:
 
         result = calculator.calculate(2025, 7)
 
-        # h1=11-3=8, h2=12, total=20
-        expected_advance = REFERENCE_NET_SALARY * (8 / 20)
-        expected_payout = REFERENCE_NET_SALARY * (12 / 20)
+        # norm (11,12,23) -> worked (8,12,20); net за месяц = net * 20/23
+        net_worked = REFERENCE_NET_SALARY * (20 / 23)
+        expected_advance = net_worked * (8 / 20)
+        expected_payout = net_worked * (12 / 20)
         assert result.advance == pytest.approx(expected_advance, abs=0.01)
         assert result.payout == pytest.approx(expected_payout, abs=0.01)
+        assert result.net_salary == pytest.approx(net_worked, abs=0.01)
+        assert result.working_days_total == pytest.approx(20.0)
         assert result.vacation_half_1 == pytest.approx(15000.0)
         assert result.vacation_half_2 == pytest.approx(0.0)
         assert result.to_pay_half_1 == pytest.approx(expected_advance + 15000.0, abs=0.01)
+        # весь оклад за отработанное + отпускные
+        assert result.total_accrued == pytest.approx(net_worked + 15000.0, abs=0.01)
 
     def test_weekend_vacation_days_dont_reduce_worked_days(
         self, calculator: SalaryCalculator, db: DatabaseManager

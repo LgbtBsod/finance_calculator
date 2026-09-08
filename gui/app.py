@@ -118,8 +118,6 @@ class FinanceApp:
         self._apply_theme()
         if self._host is not None:
             self._host.bgcolor = COLORS["bg"]
-        if self._rail is not None and self._rail.parent is not None:
-            pass
         self.rerender()
         self.page.update()
 
