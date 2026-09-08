@@ -127,8 +127,8 @@ class DebtsView(View):
 
     def _delete(self, d: dict) -> None:
         confirm(
-            self.app.page, f"Удалить долг «{d['title']}»?",
-            lambda: self.guard(lambda: self.svc.delete_debt(d["id"]), ok="Долг удалён"),
+            self.app.page, f"Удалить долг «{d['title']}» со всеми платежами?",
+            lambda: self.delete_undoable(lambda: self.svc.delete_debt(d["id"]), label="Долг"),
         )
 
     def _delete_repayment(self, d: dict, r: dict) -> None:

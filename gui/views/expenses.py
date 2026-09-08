@@ -200,12 +200,8 @@ class ExpensesView(View):
     # ── CRUD ────────────────────────────────────────────────
 
     def _delete(self, item: dict) -> None:
-        from ..widgets import confirm
-
-        confirm(
-            self.app.page, f"Удалить расход «{item['name']}»?",
-            lambda: self.guard(lambda: self.svc.delete_expense(item["id"]), ok="Расход удалён"),
-        )
+        # без диалога подтверждения — снекбар «Отменить» держится 6 секунд
+        self.delete_undoable(lambda: self.svc.delete_expense(item["id"]), label="Расход")
 
     def _open_form(self, item: dict | None, groups: list[dict] | None) -> None:
         page = self.app.page
@@ -337,9 +333,9 @@ class GroupsView(View):
         from ..widgets import confirm
 
         confirm(
-            self.app.page, f"Удалить группу «{g['name']}»?",
-            lambda: self.guard(lambda: self.svc.delete_expense_group(g["id"]),
-                               ok="Группа удалена"),
+            self.app.page, f"Удалить группу «{g['name']}»? Её расходы станут «без группы».",
+            lambda: self.delete_undoable(
+                lambda: self.svc.delete_expense_group(g["id"]), label="Группа"),
         )
 
     def _open_form(self, g: dict | None) -> None:

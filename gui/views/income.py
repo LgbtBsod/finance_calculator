@@ -11,7 +11,6 @@ from ..theme import COLORS
 from ..widgets import (
     card,
     card_grid,
-    confirm,
     dropdown,
     empty_state,
     hint,
@@ -105,10 +104,7 @@ class IncomeView(View):
         self.reload()
 
     def _delete(self, item: dict) -> None:
-        confirm(
-            self.app.page, f"Удалить доход «{item['name']}»?",
-            lambda: self.guard(lambda: self.svc.delete_income(item["id"]), ok="Доход удалён"),
-        )
+        self.delete_undoable(lambda: self.svc.delete_income(item["id"]), label="Доход")
 
     def _open_form(self, item: dict | None) -> None:
         page = self.app.page

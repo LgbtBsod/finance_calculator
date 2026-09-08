@@ -118,6 +118,9 @@
    `debts.monthly_payment` / `debts.payment_half` + `update_debt`.
    Спроецированная строка повтора помечается `projected=True` (id — оригинала
    из другого месяца) — GUI блокирует её правку/удаление.
+   Удаление обратимо: `snapshot_for_undo(kind, id)` снимает строку (+ платежи
+   долга) до `delete_*`, `restore_from_undo(snapshot)` вставляет её обратно
+   1-в-1 (`INSERT OR IGNORE`, тот же id); GUI показывает снекбар «Отменить».
 3. **`calculator.py`** — чистая бизнес-логика (зарплата, баланс, триггеры ДР).
 4. **`prod_calendar.py`** — производственный календарь РФ (`work-calendar` +
    декоратор ручных поправок + опциональный парсер PDF).

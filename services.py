@@ -81,8 +81,13 @@ class FinanceService:
         g = self.k.request("db", "update_expense_group", **payload)
         return self._group_out(g) if g else None
 
-    def delete_expense_group(self, group_id: str) -> None:
-        self.k.request("db", "delete_expense_group", group_id=group_id)
+    def delete_expense_group(self, group_id: str) -> dict:
+        return self.k.request("db", "delete_expense_group", group_id=group_id)
+
+    def restore_deleted(self, snapshot: dict) -> None:
+        """Отменить удаление по снимку из delete_* (ключ "undo")."""
+        if snapshot:
+            self.k.request("db", "restore_deleted", snapshot=snapshot)
 
     # ═══════════════════════ expenses ═══════════════════════
 
@@ -143,8 +148,8 @@ class FinanceService:
         e = self.k.request("db", "update_expense", **payload)
         return self._expense_out(e) if e else None
 
-    def delete_expense(self, item_id: str) -> None:
-        self.k.request("db", "delete_expense", eid=int(item_id))
+    def delete_expense(self, item_id: str) -> dict:
+        return self.k.request("db", "delete_expense", eid=int(item_id))
 
     # ═══════════════════════ income ═══════════════════════
 
@@ -195,8 +200,8 @@ class FinanceService:
         i = self.k.request("db", "update_income", **payload)
         return self._income_out(i) if i else None
 
-    def delete_income(self, item_id: str) -> None:
-        self.k.request("db", "delete_income", iid=int(item_id))
+    def delete_income(self, item_id: str) -> dict:
+        return self.k.request("db", "delete_income", iid=int(item_id))
 
     # ═══════════════════════ vacations ═══════════════════════
 
@@ -236,8 +241,8 @@ class FinanceService:
             "start_date": start_date or payout_date, "end_date": end_date or payout_date,
         })
 
-    def delete_vacation(self, vacation_id: str) -> None:
-        self.k.request("db", "delete_vacation", vid=int(vacation_id))
+    def delete_vacation(self, vacation_id: str) -> dict:
+        return self.k.request("db", "delete_vacation", vid=int(vacation_id))
 
     # ═══════════════════════ birthdays ═══════════════════════
 
@@ -283,8 +288,8 @@ class FinanceService:
             "id": bid, "name": new_name, "birth_date": new_bd, "gift_amount": new_gift,
         })
 
-    def delete_birthday(self, birthday_id: str) -> None:
-        self.k.request("db", "delete_birthday", bid=int(birthday_id))
+    def delete_birthday(self, birthday_id: str) -> dict:
+        return self.k.request("db", "delete_birthday", bid=int(birthday_id))
 
     def upcoming_birthdays(self, days: int = 30) -> list[dict]:
         return [
@@ -355,8 +360,8 @@ class FinanceService:
             monthly_payment=monthly_payment, payment_half=payment_half,
         )
 
-    def delete_debt(self, debt_id: str) -> None:
-        self.k.request("db", "delete_debt", debt_id=int(debt_id))
+    def delete_debt(self, debt_id: str) -> dict:
+        return self.k.request("db", "delete_debt", debt_id=int(debt_id))
 
     def add_repayment(
         self, debt_id: str, *, amount: float, when: str | None = None, note: str | None = None

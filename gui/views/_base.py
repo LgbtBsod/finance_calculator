@@ -67,6 +67,17 @@ class View:
             self.toast(ok)
         self.reload()
 
+    def delete_undoable(self, delete_fn, *, label: str) -> None:
+        """Удалить и показать снекбар «Отменить» (delete_fn возвращает
+        {"undo": <снимок>} из services.delete_*)."""
+        try:
+            result = delete_fn()
+        except Exception as exc:  # noqa: BLE001
+            self.toast(str(exc) or "Не удалось удалить", error=True)
+            return
+        self.app.show_undo_snackbar(f"{label} удалён", (result or {}).get("undo"))
+        self.reload()
+
     def _set_month(self, e: ft.ControlEvent) -> None:
         self.month = int(e.control.value)
         self.reload()

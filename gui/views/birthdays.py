@@ -108,7 +108,8 @@ class BirthdaysView(View):
     def _delete(self, b: dict) -> None:
         confirm(
             self.app.page, f"Удалить день рождения «{b['name']}»?",
-            lambda: self.guard(lambda: self.svc.delete_birthday(b["id"]), ok="Удалено"),
+            lambda: self.delete_undoable(
+                lambda: self.svc.delete_birthday(b["id"]), label="День рождения"),
         )
 
     def _open_form(self, b: dict | None) -> None:

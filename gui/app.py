@@ -179,6 +179,28 @@ class FinanceApp:
             )
         )
 
+    def show_undo_snackbar(self, message: str, snapshot: dict | None) -> None:
+        """Снекбар с кнопкой «Отменить» после удаления. Без снимка —
+        обычное уведомление."""
+        def _undo(_e) -> None:
+            try:
+                self.service.restore_deleted(snapshot)
+            except Exception as exc:  # noqa: BLE001
+                self.show_snackbar(f"Не удалось отменить: {exc}", error=True)
+                return
+            self.rerender()
+            self.show_snackbar("Восстановлено")
+
+        self.page.show_dialog(
+            ft.SnackBar(
+                content=ft.Text(message),
+                bgcolor=COLORS["surface_alt"],
+                duration=6000,
+                action="Отменить" if snapshot else None,
+                on_action=_undo if snapshot else None,
+            )
+        )
+
 
 def _default_kernel():
     from core.bootstrap import build_kernel

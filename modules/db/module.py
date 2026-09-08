@@ -57,6 +57,8 @@ class DBModule(Module):
             "add_income": self._add_income,
             "update_income": self._update_income,
             "delete_income": self._delete_income,
+            # undo удаления (снимок -> восстановление)
+            "restore_deleted": self._restore_deleted,
             # expense groups
             "create_expense_group": self._create_group,
             "update_expense_group": self._update_group,
@@ -108,9 +110,30 @@ class DBModule(Module):
         self._changed("expenses")
         return next((e for e in self.db.get_expenses() if e["id"] == eid), None)
 
-    def _delete_expense(self, eid: int) -> None:
-        self.db.delete_expense(eid)
-        self._changed("expenses")
+    def _delete_expense(self, eid: int) -> dict:
+        return self._delete_undoable("expense", eid, self.db.delete_expense, ["expenses"])
+
+    # ── undo удаления ────────────────────────────────────────
+
+    def _delete_undoable(self, kind: str, row_id: Any, do_delete, entities: list[str]) -> dict:
+        """Снять снимок, удалить, разослать db:changed. Возвращает
+        {"undo": <снимок или None>} — GUI показывает «Отменить»."""
+        snap = self.db.snapshot_for_undo(kind, row_id)
+        do_delete(row_id)
+        for e in entities:
+            self._changed(e)
+        return {"undo": snap}
+
+    def _restore_deleted(self, snapshot: dict) -> dict:
+        self.db.restore_from_undo(snapshot)
+        entities = {
+            "expense": ["expenses"], "income": ["income"],
+            "expense_group": ["expense_groups", "expenses"],
+            "vacation": ["vacations"], "birthday": ["birthdays"], "debt": ["debts"],
+        }.get(snapshot.get("kind"), [])
+        for e in entities:
+            self._changed(e)
+        return {"restored": snapshot.get("kind")}
 
     # ── income ───────────────────────────────────────────────
 
@@ -127,9 +150,8 @@ class DBModule(Module):
         self._changed("income")
         return next((i for i in self.db.get_income() if i["id"] == iid), None)
 
-    def _delete_income(self, iid: int) -> None:
-        self.db.delete_income(iid)
-        self._changed("income")
+    def _delete_income(self, iid: int) -> dict:
+        return self._delete_undoable("income", iid, self.db.delete_income, ["income"])
 
     # ── expense groups ───────────────────────────────────────
 
@@ -143,10 +165,13 @@ class DBModule(Module):
         self._changed("expense_groups")
         return self.db.get_expense_group(group_id)
 
-    def _delete_group(self, group_id: str) -> None:
-        self.db.delete_expense_group(group_id)
-        self._changed("expense_groups")
-        self._changed("expenses")  # расходы стали «без группы»
+    def _delete_group(self, group_id: str) -> dict:
+        # расходы группы становятся «без группы» — их восстановление отмены
+        # не касается (это отдельная правка), но событие нужно
+        return self._delete_undoable(
+            "expense_group", group_id, self.db.delete_expense_group,
+            ["expense_groups", "expenses"],
+        )
 
     # ── vacations ────────────────────────────────────────────
 
@@ -155,9 +180,8 @@ class DBModule(Module):
         self._changed("vacations")
         return {"id": new_id}
 
-    def _delete_vacation(self, vid: int) -> None:
-        self.db.delete_vacation(vid)
-        self._changed("vacations")
+    def _delete_vacation(self, vid: int) -> dict:
+        return self._delete_undoable("vacation", vid, self.db.delete_vacation, ["vacations"])
 
     # ── birthdays ────────────────────────────────────────────
 
@@ -171,9 +195,8 @@ class DBModule(Module):
         self.db.update_birthday(bid, name, birth_date, gift_amount)
         self._changed("birthdays")
 
-    def _delete_birthday(self, bid: int) -> None:
-        self.db.delete_birthday(bid)
-        self._changed("birthdays")
+    def _delete_birthday(self, bid: int) -> dict:
+        return self._delete_undoable("birthday", bid, self.db.delete_birthday, ["birthdays"])
 
     # ── debts ────────────────────────────────────────────────
 
@@ -186,9 +209,8 @@ class DBModule(Module):
         self.db.update_debt(debt_id, **kw)
         self._changed("debts")
 
-    def _delete_debt(self, debt_id: int) -> None:
-        self.db.delete_debt(debt_id)
-        self._changed("debts")
+    def _delete_debt(self, debt_id: int) -> dict:
+        return self._delete_undoable("debt", debt_id, self.db.delete_debt, ["debts"])
 
     def _add_repayment(self, **kw: Any) -> dict:
         rid = self.db.add_debt_repayment(**kw)

@@ -90,6 +90,65 @@ class TestDebtMonthlyPayment:
         assert upd["monthlyPayment"] == 500 and upd["paymentHalf"] == 1
 
 
+class TestUndoDelete:
+    def test_expense_delete_returns_snapshot_and_restore_brings_it_back(
+        self, service: FinanceService
+    ):
+        e = service.create_expense(name="Кредит", amount=5000, half=1, month=3, year=2025,
+                                   is_recurring=True, recurring_until="2025-12-31")
+        res = service.delete_expense(e["id"])
+        assert service.list_expenses(3, 2025) == []
+        assert res["undo"]["kind"] == "expense"
+
+        service.restore_deleted(res["undo"])
+        back = service.list_expenses(3, 2025)
+        assert len(back) == 1
+        assert back[0]["id"] == e["id"]            # тот же id
+        assert back[0]["isRecurring"] is True
+        assert back[0]["recurringUntil"] == "2025-12-31"
+
+    def test_income_undo(self, service: FinanceService):
+        i = service.create_income(name="Аренда", amount=20000, half=1, month=6, year=2025)
+        snap = service.delete_income(i["id"])["undo"]
+        assert service.list_income(6, 2025) == []
+        service.restore_deleted(snap)
+        assert service.list_income(6, 2025)[0]["amount"] == 20000
+
+    def test_debt_undo_restores_repayments_too(self, service: FinanceService):
+        d = service.create_debt(title="Займ", total_amount=30000, month=1, year=2025)
+        service.add_repayment(d["id"], amount=5000, when="2025-02-01")
+        service.add_repayment(d["id"], amount=3000, when="2025-03-01")
+
+        snap = service.delete_debt(d["id"])["undo"]
+        assert service.list_debts() == []
+        assert len(snap["repayments"]) == 2
+
+        service.restore_deleted(snap)
+        back = service.list_debts()[0]
+        assert back["id"] == d["id"]
+        assert back["repaidAmount"] == 8000
+        assert len(back["repayments"]) == 2
+
+    def test_group_undo(self, service: FinanceService):
+        g = service.create_expense_group(name="Еда", color="#112233", monthly_limit=5000)
+        snap = service.delete_expense_group(g["id"])["undo"]
+        assert service.list_expense_groups() == []
+        service.restore_deleted(snap)
+        back = service.list_expense_groups()[0]
+        assert back["id"] == g["id"] and back["monthlyLimit"] == 5000
+
+    def test_restore_is_idempotent(self, service: FinanceService):
+        e = service.create_expense(name="x", amount=100, half=1, month=3, year=2025)
+        snap = service.delete_expense(e["id"])["undo"]
+        service.restore_deleted(snap)
+        service.restore_deleted(snap)   # повторная отмена не должна падать/дублировать
+        assert len(service.list_expenses(3, 2025)) == 1
+
+    def test_delete_missing_expense_yields_no_snapshot(self, service: FinanceService):
+        res = service.delete_expense("999999")
+        assert res["undo"] is None
+
+
 class TestExpenses:
     def test_partial_update_keeps_untouched_fields(self, service: FinanceService):
         g = service.create_expense_group(name="G", color="#010203")

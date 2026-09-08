@@ -66,7 +66,8 @@ class VacationsView(View):
             self.app.page,
             f"Удалить отпускные {format_currency(v['totalAmount'])} "
             f"от {format_date_ru(v['payoutDate'])}?",
-            lambda: self.guard(lambda: self.svc.delete_vacation(v["id"]), ok="Отпускные удалены"),
+            lambda: self.delete_undoable(
+                lambda: self.svc.delete_vacation(v["id"]), label="Отпускные"),
         )
 
     def _open_form(self) -> None:
