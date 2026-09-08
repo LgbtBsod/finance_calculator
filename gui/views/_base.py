@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import TYPE_CHECKING
 
 import flet as ft
 
 from ..theme import COLORS
-from ..widgets import section_title
+from ..widgets import card, hint, section_title
 
 if TYPE_CHECKING:
     from ..app import FinanceApp
+
+log = logging.getLogger(__name__)
 
 
 class View:
@@ -41,8 +44,23 @@ class View:
         children: list[ft.Control] = []
         if self.title:
             children.append(section_title(self.title))
-        children.extend(self.content())
+        try:
+            children.extend(self.content())
+        except Exception as exc:  # noqa: BLE001 — экран не должен ронять приложение
+            log.exception("Ошибка при построении экрана %s", type(self).__name__)
+            children.append(self._error_card(exc))
         return ft.Column(children, spacing=16, tight=True)
+
+    def _error_card(self, exc: Exception) -> ft.Control:
+        return card(
+            ft.Row([ft.Icon(ft.Icons.ERROR_OUTLINE, color=COLORS["danger"]),
+                    ft.Text("Не удалось построить этот экран", size=14,
+                            weight=ft.FontWeight.W_600, color=COLORS["text"])], spacing=8),
+            hint(f"{type(exc).__name__}: {exc}"),
+            hint("Подробности — в logs/app.log. Другие экраны работают; "
+                 "попробуйте сменить период или перезапустить приложение."),
+            bgcolor=COLORS["danger_bg"],
+        )
 
     # ── общие обработчики ─────────────────────────────────────
 

@@ -116,6 +116,19 @@ def fake_app(tmp_path):
     svc.close()
 
 
+def test_view_error_is_contained_not_raised(fake_app):
+    from gui.views._base import View
+
+    class Boom(View):
+        title = "Бум"
+
+        def content(self):
+            raise RuntimeError("нарочно")
+
+    ctrl = Boom(fake_app).render()          # не должно бросить
+    assert ctrl is not None
+
+
 def test_all_views_render(fake_app):
     from gui.views.analytics import AnalyticsView
     from gui.views.balance import BalanceView

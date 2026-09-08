@@ -136,15 +136,31 @@ def _get_logger():
     return logging.getLogger("main")
 
 
+_HELP = """Финансовый калькулятор
+
+  --version        показать версию и выйти
+  --help, -h       эта справка
+  --port N         порт локального веб-сервера (по умолчанию 8420)
+  --force-update   (frozen) принудительно проверить и поставить обновление
+"""
+
+
 def main() -> None:
+    args = sys.argv[1:]
+    if "--version" in args:
+        print(paths.read_version())
+        return
+    if "--help" in args or "-h" in args:
+        print(_HELP)
+        return
+
     log = _get_logger()
     log.info(
-        "App dir: %s | frozen: %s | python: %s",
-        paths.app_dir, paths.frozen, sys.version.split()[0],
+        "App dir: %s | frozen: %s | python: %s | version: %s",
+        paths.app_dir, paths.frozen, sys.version.split()[0], paths.read_version(),
     )
     log.info("Args: %s", sys.argv)
 
-    args = sys.argv[1:]
     if paths.frozen:
         if _finish_pending_update(log):
             log.info("Pending update handed to the relaunch helper; exiting.")
