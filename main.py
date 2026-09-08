@@ -163,6 +163,8 @@ def main() -> None:
         except Exception as e:
             log.warning("Forced update failed, continuing: %s", e)
 
+    paths.ensure_db_dir()  # создать db/ и перенести БД из старой плоской раскладки
+
     port = 8420
     if "--port" in args:
         with contextlib.suppress(ValueError, IndexError):

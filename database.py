@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
+from pathlib import Path
 
 from config import get_settings
 from models import (
@@ -65,6 +66,11 @@ class DatabaseManager:
     def __init__(self, db_path: str = "budget.db") -> None:
         self.db_path = db_path
         self._conn_cache: sqlite3.Connection | None = None
+        if db_path != ":memory:":
+            # sqlite не создаёт отсутствующие директории — заводим сами,
+            # чтобы БД в подпапке (db/budget.db) открывалась «из коробки».
+            with suppress(OSError):
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     # ── соединение ────────────────────────────────────────────

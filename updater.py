@@ -62,7 +62,7 @@ def _build_ssl_context() -> ssl.SSLContext | None:
         return None
 
 
-SKIP_PATTERNS = {"venv", ".venv", ".git", "__pycache__", "budget.db", "data", "logs", "app.lock"}
+SKIP_PATTERNS = {"venv", ".venv", ".git", "__pycache__", "budget.db", "db", "data", "logs", "app.lock"}
 SKIP_EXTENSIONS = {".pyc", ".pyo", ".tmp"}
 
 # sys.platform -> допустимые ведущие байты для релиз-ассета этой ОС.
@@ -461,9 +461,10 @@ class AutoUpdater:
                 if src.exists():
                     shutil.copy2(src, self.backup_dir / fname)
 
-            data_src = self.app_dir / "data" / "db"
-            if data_src.is_dir():
-                shutil.copytree(data_src, self.backup_dir / "data" / "db", dirs_exist_ok=True)
+            # Пользовательская БД (с WAL/SHM) — в db/ рядом с приложением.
+            db_src = self.app_dir / "db"
+            if db_src.is_dir():
+                shutil.copytree(db_src, self.backup_dir / "db", dirs_exist_ok=True)
 
             old_backups = sorted(
                 (d for d in backup_base.glob("backup_*") if d.is_dir()),
@@ -486,9 +487,9 @@ class AutoUpdater:
             for item in self.backup_dir.iterdir():
                 if item.is_file():
                     shutil.copy2(item, self.app_dir / item.name)
-            data_backup = self.backup_dir / "data" / "db"
-            if data_backup.is_dir():
-                shutil.copytree(data_backup, self.app_dir / "data" / "db", dirs_exist_ok=True)
+            db_backup = self.backup_dir / "db"
+            if db_backup.is_dir():
+                shutil.copytree(db_backup, self.app_dir / "db", dirs_exist_ok=True)
             logger.info("Successfully restored from backup")
             return True
         except Exception as exc:

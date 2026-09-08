@@ -10,6 +10,7 @@ Frozen (PyInstaller one-file): всё рядом с .exe, чтобы польз�
 from __future__ import annotations
 
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 frozen: bool = bool(getattr(sys, "frozen", False))
@@ -22,8 +23,30 @@ else:
     app_dir = Path(__file__).resolve().parent
     exe_path = None
 
-db_path: Path = app_dir / "budget.db"
+db_dir: Path = app_dir / "db"
+db_path: Path = db_dir / "budget.db"
 logs_dir: Path = app_dir / "logs"
+
+# Раньше БД лежала плоско рядом с приложением (``app_dir/budget.db``).
+_legacy_db_path: Path = app_dir / "budget.db"
+
+
+def ensure_db_dir() -> None:
+    """Создать ``db/`` и, если рядом лежит БД из старой раскладки
+    (``app_dir/budget.db``), однократно перенести её внутрь — вместе с
+    WAL/SHM-файлами. Вызывать один раз на старте до открытия БД.
+    """
+    try:
+        db_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+    if db_path.exists() or not _legacy_db_path.is_file():
+        return
+    for suffix in ("", "-wal", "-shm"):
+        src = app_dir / f"budget.db{suffix}"
+        if src.is_file():
+            with suppress(OSError):
+                src.replace(db_dir / f"budget.db{suffix}")
 
 
 def version_file_candidates() -> list[Path]:

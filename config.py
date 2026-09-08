@@ -81,7 +81,7 @@ class AppSettings(BaseSettings):
 
     # Database & Storage — абсолютные пути, привязанные к PROJECT_ROOT,
     # а не к cwd процесса (см. комментарий у PROJECT_ROOT выше).
-    db_path: str = str(PROJECT_ROOT / "budget.db")
+    db_path: str = str(PROJECT_ROOT / "db" / "budget.db")
     upload_dir: Path = PROJECT_ROOT / ".upload"
 
     # Salary calculation defaults

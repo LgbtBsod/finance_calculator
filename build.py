@@ -134,7 +134,7 @@ def main() -> None:
     else:
         err("Build finished but no executable found in dist/.")
         sys.exit(1)
-    print("  budget.db lives next to the exe and survives updates.")
+    print("  User data lives in db/ next to the exe and survives updates.")
     print("=" * 60)
 
 

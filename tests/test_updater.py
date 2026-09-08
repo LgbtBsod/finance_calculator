@@ -156,6 +156,37 @@ class TestDownloadAndBackup:
             assert updater._restore_from_backup() is True
             assert (updater.app_dir / "version.txt").read_text() == "1.0.0"
 
+    def test_backup_and_restore_covers_db_folder(self, updater):
+        """Пользовательская БД лежит в db/ — бэкап/откат должны её захватывать."""
+        with tempfile.TemporaryDirectory() as tmp:
+            updater.app_dir = Path(tmp)
+            (updater.app_dir / "version.txt").write_text("1.0.0")
+            (updater.app_dir / "db").mkdir()
+            (updater.app_dir / "db" / "budget.db").write_text("real-data")
+
+            backup = updater._create_backup()
+            assert backup and (backup / "db" / "budget.db").read_text() == "real-data"
+
+            (updater.app_dir / "db" / "budget.db").write_text("corrupted-by-update")
+            assert updater._restore_from_backup() is True
+            assert (updater.app_dir / "db" / "budget.db").read_text() == "real-data"
+
+    def test_copy_update_files_never_overwrites_db_folder(self, updater):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            (src / "db").mkdir(parents=True)
+            (src / "db" / "budget.db").write_text("release-placeholder")
+            (src / "main.py").write_text("# main")
+
+            dest = Path(tmp) / "dest"
+            (dest / "db").mkdir(parents=True)
+            (dest / "db" / "budget.db").write_text("user-data")
+            updater.app_dir = dest
+
+            updater._copy_update_files(src)
+
+            assert (dest / "db" / "budget.db").read_text() == "user-data"
+
     def test_copy_update_files_skips_junk(self, updater):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src"
