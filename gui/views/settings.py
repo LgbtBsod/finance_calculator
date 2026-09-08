@@ -148,7 +148,7 @@ class SettingsView(View):
     # ── updates ───────────────────────────────────────────────
 
     def _updates_card(self) -> ft.Container:
-        current = self.app.service.k.request("updater", "current_version")
+        current = self.app.service.current_version()
 
         auto = ft.Switch(
             label="Проверять обновления при запуске",

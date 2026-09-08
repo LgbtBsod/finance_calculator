@@ -37,12 +37,15 @@ class DBModule(Module):
         self._db_path = db_path
         self.db: DatabaseManager | None = None
 
+    def _read(self, method_name: str):
+        """Обёртка-проброс read-метода DatabaseManager (замыкание над именем)."""
+        return lambda **kw: getattr(self.db, method_name)(**kw)
+
     def initialize(self) -> None:
         self.db = DatabaseManager(self._db_path)
         self._actions = {
-            # reads
-            **{a: (lambda m: lambda **kw: getattr(self.db, m)(**kw))(meth)
-               for a, meth in _READS.items()},
+            # reads — тонкий проброс в DatabaseManager
+            **{action: self._read(method) for action, method in _READS.items()},
             # settings write
             "set_setting": self._set_setting,
             # expenses

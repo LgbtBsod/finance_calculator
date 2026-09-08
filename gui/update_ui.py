@@ -45,9 +45,7 @@ def check_now(app) -> None:
 
 
 async def _run_check(app, *, manual: bool) -> None:
-    res = await asyncio.to_thread(
-        app.service.k.request, "updater", "check", force=manual
-    )
+    res = await asyncio.to_thread(app.service.check_updates, force=manual)
 
     if res.get("skipped"):
         return
@@ -73,7 +71,7 @@ async def _run_check(app, *, manual: bool) -> None:
 
 def _prompt(app, url: str, version: str) -> None:
     page = app.page
-    current = app.service.k.request("updater", "current_version")
+    current = app.service.current_version()
 
     def close():
         page.pop_dialog()
@@ -116,7 +114,9 @@ def _prompt(app, url: str, version: str) -> None:
 
 
 async def _download_and_restart(app, url: str, version: str) -> None:
-    from updater import AutoUpdater, get_current_version
+    # Прямой вызов движка загрузки — файловая/процессная операция с живым
+    # прогресс-колбэком, её нельзя провести через ядро (см. модуль docstring).
+    from updater import AutoUpdater
 
     page = app.page
     bar = ft.ProgressBar(value=0, bar_height=8)
@@ -140,7 +140,7 @@ async def _download_and_restart(app, url: str, version: str) -> None:
         except Exception:  # noqa: BLE001
             pass
 
-    updater = AutoUpdater(current_version=get_current_version())
+    updater = AutoUpdater(current_version=app.service.current_version())
     updater.progress_callback = on_progress
     ok = await asyncio.to_thread(updater.download_update, url, version)
     page.pop_dialog()

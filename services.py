@@ -346,6 +346,15 @@ class FinanceService:
     def import_calendar_pdf(self, pdf_path: str) -> dict | None:
         return self.k.request("calendar", "import_pdf", pdf_path=pdf_path)
 
+    # ═══════════════════════ updates ═══════════════════════
+
+    def current_version(self) -> str:
+        return self.k.request("updater", "current_version")
+
+    def check_updates(self, *, force: bool = False) -> dict:
+        """{has_update, version, url, rate_limited, reachable, skipped}."""
+        return self.k.request("updater", "check", force=force)
+
     # ═══════════════════════ backup ═══════════════════════
 
     def backup_bytes(self) -> bytes:
