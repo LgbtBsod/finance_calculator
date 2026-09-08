@@ -66,13 +66,19 @@ class TestDebtMonthlyPayment:
     def test_planned_payment_deducted_from_balance(self, service: FinanceService):
         service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
         service.create_debt(title="Кредит", total_amount=100000,
-                            monthly_payment=8000, payment_half=2)
-        b = service.balance(6, 2025)
+                            monthly_payment=8000, payment_half=2, month=1, year=2025)
+        b = service.balance(6, 2025)  # долг создан в янв 2025, июнь — он ещё «жив»
         assert b["debtPaymentHalf2"] == 8000
         assert b["balanceHalf2"] == pytest.approx(b["toPayHalf2"] - 8000)
 
+    def test_no_planned_payment_before_debt_existed(self, service: FinanceService):
+        service.create_debt(title="Кредит", total_amount=100000,
+                            monthly_payment=8000, payment_half=2, month=6, year=2025)
+        assert service.balance(1, 2025)["debtPaymentHalf2"] == 0  # до создания долга
+
     def test_no_deduction_when_debt_repaid(self, service: FinanceService):
-        d = service.create_debt(title="X", total_amount=5000, monthly_payment=1000)
+        d = service.create_debt(title="X", total_amount=5000, monthly_payment=1000,
+                                month=1, year=2025)
         service.add_repayment(d["id"], amount=5000, when="2025-06-01")
         b = service.balance(6, 2025)
         assert b["debtPaymentHalf2"] == 0  # долг закрыт — платёж не вычитается
@@ -169,3 +175,15 @@ class TestValidation:
                 total_amount=1000, payout_date="2025-07-10",
                 start_date="2025-07-20", end_date="2025-07-10",
             )
+
+    def test_recurring_until_rejects_non_dashed_date(self, service: FinanceService):
+        # date.fromisoformat принимает "20260131", но SQLite не сравнит его
+        # как "ГГГГ-ММ-ДД" -> проекция повтора молча ломалась бы.
+        with pytest.raises(ValidationError):
+            service.create_expense(name="x", amount=100, half=1, month=1, year=2025,
+                                   is_recurring=True, recurring_until="20260131")
+
+    def test_recurring_until_accepts_iso_date(self, service: FinanceService):
+        e = service.create_expense(name="x", amount=100, half=1, month=1, year=2025,
+                                   is_recurring=True, recurring_until="2026-01-31")
+        assert e["recurringUntil"] == "2026-01-31"

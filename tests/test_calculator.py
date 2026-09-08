@@ -253,6 +253,73 @@ class TestWorkingDaysMethod:
         assert not math.isnan(result.payout)
 
 
+class TestVacationReducesSalaryForAllMethods:
+    """ТК РФ: оклад урезается за дни отпуска независимо от метода
+    распределения (не только working_days)."""
+
+    def _calc(self, db: DatabaseManager, method: str, vac_rows: list[dict]):
+        db.set_setting("base_salary", "100000")
+        db.set_setting("tax_rate", "0")
+        db.set_setting("kef", "1.0")
+        db.set_setting("salary_calculation_method", method)
+        db.set_setting("advance_cutoff_day", "15")
+        db.set_setting("is_advance_date_inclusive", "true")
+        return SalaryCalculator(
+            get_setting=db.get_setting,
+            vacations=_FakeVacationReader(vac_rows),
+            calendar_reader=_FakeCalendarReader(working_days=(20.0, 10.0, 10.0)),
+        )
+
+    def test_proportional_method_reduces_oklad_for_vacation_days(self, db: DatabaseManager):
+        # 5 рабочих дней отпуска из 20 нормы -> оклад * 15/20
+        vac = [{"id": 1, "total_amount": 12000.0, "payout_date": "2026-08-04",
+                "start_date": "2026-08-03", "end_date": "2026-08-07"}]
+        result = self._calc(db, "proportional", vac).calculate(2026, 8)
+
+        assert result.net_salary == pytest.approx(75000.0)          # 100000 * 15/20
+        assert result.advance == pytest.approx(30000.0)             # 75000 * 0.4
+        assert result.payout == pytest.approx(45000.0)              # 75000 * 0.6
+        assert result.total_accrued == pytest.approx(75000.0 + 12000.0)
+
+    def test_custom_proportions_method_reduces_oklad_for_vacation_days(self, db: DatabaseManager):
+        db.set_setting("first_half_ratio", "0.5")
+        db.set_setting("second_half_ratio", "0.5")
+        vac = [{"id": 1, "total_amount": 0.0, "payout_date": "2026-08-04",
+                "start_date": "2026-08-03", "end_date": "2026-08-07"}]
+        result = self._calc(db, "custom_proportions", vac).calculate(2026, 8)
+
+        assert result.net_salary == pytest.approx(75000.0)
+        assert result.advance == pytest.approx(37500.0)             # 75000 * 0.5
+
+    def test_no_vacation_leaves_full_oklad(self, db: DatabaseManager):
+        result = self._calc(db, "proportional", []).calculate(2026, 8)
+        assert result.net_salary == pytest.approx(100000.0)
+
+
+class TestVacationPayHalfFollowsCutoffDay:
+    def test_vacation_pay_uses_advance_cutoff_day_not_hardcoded_15(self, db: DatabaseManager):
+        db.set_setting("base_salary", "100000")
+        db.set_setting("tax_rate", "0")
+        db.set_setting("salary_calculation_method", "proportional")
+        db.set_setting("advance_cutoff_day", "20")          # не 15
+        db.set_setting("is_advance_date_inclusive", "true")
+        db.set_setting("move_weekend_to_friday", "false")   # фейк-календарь без раб. дней
+        # Выплата 18-го: при cutoff=20 это ещё первая половина (раньше
+        # хардкод 18<=15 отправил бы во вторую).
+        vac = [{"id": 1, "total_amount": 9000.0, "payout_date": "2026-08-18",
+                "start_date": "2026-08-18", "end_date": "2026-08-18"}]
+        calc = SalaryCalculator(
+            get_setting=db.get_setting,
+            vacations=_FakeVacationReader(vac),
+            calendar_reader=_FakeCalendarReader(day_kind=DayKind.WEEKEND),  # 0 раб. дней отпуска
+        )
+
+        result = calc.calculate(2026, 8)
+
+        assert result.vacation_half_1 == pytest.approx(9000.0)
+        assert result.vacation_half_2 == pytest.approx(0.0)
+
+
 class TestMalformedVacationDates:
     """Битая дата в записи об отпуске (повреждённые данные, ручное
     редактирование БД и т.п.) не должна ронять весь расчёт зарплаты —
@@ -368,6 +435,24 @@ class TestBirthdayService:
         # ДР 5 января -> триггер 22 декабря ПРЕДЫДУЩЕГО года
         trigger = birthday_service.trigger_date("05.01.2025", 2025)
         assert trigger == date(2024, 12, 22)
+
+    def test_feb_29_birthday_falls_back_to_feb_28_in_non_leap_year(self, birthday_service):
+        # 2025 — невисокосный; 29.02 -> 28.02, триггер = 28.02 - 14 дней
+        trigger = birthday_service.trigger_date("29.02.1996", 2025)
+        assert trigger == date(2025, 2, 14)
+        # високосный год — реальная дата
+        assert birthday_service.trigger_date("29.02.1996", 2024) == date(2024, 2, 15)
+
+    def test_feb_29_birthday_auto_creates_gift_in_non_leap_year(self, birthday_service):
+        today = date(2025, 2, 1)  # 28.02.2025 -> подарок к выплате 25.02 (2-я пол.)
+        birthdays = [{"id": 1, "name": "Високосный", "birth_date": "29.02.1996",
+                      "gift_amount": 1500.0}]
+        created = []
+        count = birthday_service.auto_create_expenses(
+            birthdays, [], lambda **kw: created.append(kw), today=today
+        )
+        assert count == 1
+        assert created[0]["month"] == 2 and created[0]["year"] == 2025
 
     def test_upcoming_finds_birthday_within_window(self, birthday_service):
         today = date.today()

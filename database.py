@@ -845,13 +845,21 @@ class DatabaseManager:
         (commit/rollback), а НЕ закрывает соединение сам — без явного
         target.close() файловый хендл остаётся открытым, и на Windows
         последующее удаление временного файла падает с PermissionError.
+
+        Источник (`_conn()`) для файловой БД — тоже свежее соединение вне
+        `_transaction()`, поэтому закрываем и его: иначе read-хендл на
+        budget.db + WAL/SHM висит до сборки мусора и мешает свопу бинарника
+        апдейтером на Windows.
         """
         target = sqlite3.connect(target_path)
+        source = self._conn()
         try:
-            self._conn().backup(target)
+            source.backup(target)
             target.commit()  # на всякий случай — backup() коммитит сам, но явный commit() дешёв
         finally:
             target.close()
+            if self.db_path != ":memory:":
+                source.close()
 
 
 # ── helper: правильно конвертировать sqlite3.Row -> ExpenseRow ──

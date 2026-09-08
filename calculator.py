@@ -62,23 +62,26 @@ class SalaryCalculator:
         wd_h1 = wd_h2 = wd_total = None
         cutoff_day = None
 
+        # ТК РФ: за дни отпуска платят отпускные, а не оклад — оклад за месяц
+        # уменьшается пропорционально отработанным дням. Это правило от метода
+        # распределения не зависит: применяем ко ВСЕМ методам, если доступен
+        # производственный календарь и в месяце реально есть рабочие дни
+        # отпуска. Отпускные добавляются отдельно (см. _distribute_vacations).
+        vac_wd_h1, vac_wd_h2 = self._vacation_working_days(year, month)
+        if (vac_wd_h1 + vac_wd_h2) > 0 and self._calendar_reader is not None:
+            norm_total, _, _ = self._calendar_reader.get_working_days(year, month)
+            if norm_total > 0:
+                worked = max(0.0, norm_total - vac_wd_h1 - vac_wd_h2)
+                net = net * worked / norm_total
+
         # Распределение по половинам месяца в зависимости от метода
         match method:
             case "working_days" if self._calendar_reader:
-                norm_total, norm_h1, norm_h2 = self._calendar_reader.get_working_days(year, month)
-                vac_wd_h1, vac_wd_h2 = self._vacation_working_days(year, month)
+                _, norm_h1, norm_h2 = self._calendar_reader.get_working_days(year, month)
                 wd_h1 = max(0.0, norm_h1 - vac_wd_h1)
                 wd_h2 = max(0.0, norm_h2 - vac_wd_h2)
                 wd_total = wd_h1 + wd_h2
                 cutoff_day = int(self._get("advance_cutoff_day") or 15)
-
-                # ТК РФ: за дни отпуска платят отпускные, а не оклад — поэтому
-                # оклад за месяц уменьшается пропорционально отработанным дням
-                # (norm_total = норма рабочих дней месяца, wd_total = сколько
-                # реально отработано после вычета дней отпуска). Отпускные
-                # добавляются отдельно (см. _distribute_vacations).
-                if norm_total > 0:
-                    net = net * wd_total / norm_total
 
                 match wd_total:
                     case 0:
@@ -164,13 +167,18 @@ class SalaryCalculator:
             d -= timedelta(days=1)
         return d
 
+    def _day_in_first_half(self, day: int) -> bool:
+        """К какой половине месяца отнести число ``day`` — по дню отсечения
+        аванса из настроек (а не по захардкоженному 15-му). SSOT границы
+        половины: используется и для рабочих дней отпуска, и для отпускных."""
+        cutoff = int(self._get("advance_cutoff_day") or 15)
+        inclusive = self._get("is_advance_date_inclusive") == "true"
+        return day <= cutoff if inclusive else day < cutoff
+
     def _vacation_working_days(self, year: int, month: int) -> tuple[float, float]:
         """Сколько рабочих дней отпуска пришлось на каждую половину месяца."""
         if self._vacs is None or self._calendar_reader is None:
             return 0.0, 0.0
-
-        cutoff_day = int(self._get("advance_cutoff_day") or 15)
-        is_inclusive = self._get("is_advance_date_inclusive") == "true"
 
         h1 = h2 = 0.0
         for v in self._vacs.get_vacations(month, year):
@@ -185,8 +193,7 @@ class SalaryCalculator:
                 if d.year == year and d.month == month:
                     kind = self._calendar_reader.classify_day(d)
                     if kind in (DayKind.WORKING, DayKind.SHORTENED):
-                        in_first_half = d.day <= cutoff_day if is_inclusive else d.day < cutoff_day
-                        if in_first_half:
+                        if self._day_in_first_half(d.day):
                             h1 += 1
                         else:
                             h2 += 1
@@ -222,12 +229,11 @@ class SalaryCalculator:
             try:
                 vd = date.fromisoformat(v["payout_date"])
                 amt = float(v["total_amount"])
-                # Отпускные до 15 числа включительно - в первую половину, после - во вторую
-                match vd.day <= 15:
-                    case True:
-                        h1 += amt
-                    case False:
-                        h2 += amt
+                # По дню отсечения аванса (как рабочие дни отпуска), а не по 15-му.
+                if self._day_in_first_half(vd.day):
+                    h1 += amt
+                else:
+                    h2 += amt
             except (ValueError, TypeError):
                 pass
         return h1, h2
@@ -249,18 +255,25 @@ class BirthdayService:
     def __init__(self, get_setting: Callable[[str], str]) -> None:
         self._get = get_setting
 
+    @staticmethod
+    def _occurrence(year: int, month: int, day: int) -> date | None:
+        """Дата наступления ДР в конкретном году. 29 февраля в невисокосный
+        год переносим на 28-е (иначе алерт и авто-подарок молча пропадали
+        бы каждый невисокосный год)."""
+        try:
+            return date(year, month, day)
+        except ValueError:
+            if (month, day) == (2, 29):
+                return date(year, 2, 28)
+            return None
+
     def trigger_date(self, birth_date: str, ref_year: int) -> date | None:
         """Триггер = ДР в ref_year - 14 дней. Учитывает переход через год."""
         day, month = self._parse_bd(birth_date)
-        match day:
-            case None:
-                return None
-            case _:
-                try:
-                    bd = date(ref_year, month, day)
-                except ValueError:
-                    return None
-                return bd - timedelta(days=self.TRIGGER_DAYS_BEFORE)
+        if day is None or month is None:
+            return None
+        bd = self._occurrence(ref_year, month, day)
+        return None if bd is None else bd - timedelta(days=self.TRIGGER_DAYS_BEFORE)
 
     def upcoming(
         self,
@@ -299,7 +312,9 @@ class BirthdayService:
         day1 = int(self._get("payout_day1") or 10)
         day2 = int(self._get("payout_day2") or 25)
 
-        birthday_marker = date(ref_year, birth_month, birth_day)
+        birthday_marker = self._occurrence(ref_year, birth_month, birth_day) or date(
+            ref_year, birth_month, 28
+        )
 
         candidates: list[tuple[date, int, int, int]] = []
         for month_offset in (0, -1):
@@ -339,17 +354,19 @@ class BirthdayService:
             if day is None or month is None:
                 continue
 
-            try:
-                occurrence = date(today.year, month, day)
-            except ValueError:
+            occurrence = self._occurrence(today.year, month, day)
+            if occurrence is None:
                 continue
             if occurrence < today:
-                try:
-                    occurrence = date(today.year + 1, month, day)
-                except ValueError:
+                occurrence = self._occurrence(today.year + 1, month, day)
+                if occurrence is None:
                     continue
 
-            half, exp_month, exp_year = self.gift_expense_period(day, month, occurrence.year)
+            # occurrence.day/.month — уже с поправкой 29.02 -> 28.02, поэтому
+            # gift_expense_period не упрётся в невалидную дату.
+            half, exp_month, exp_year = self.gift_expense_period(
+                occurrence.day, occurrence.month, occurrence.year
+            )
             if (exp_month, exp_year) != (today.month, today.year):
                 continue  # относится не к текущему месяцу — пока не создаём
 

@@ -7,11 +7,42 @@
 
 from __future__ import annotations
 
+import math
+from datetime import date
 from typing import Any
 
 from core.module import Module
 
 _DEFAULT_GROUP_COLOR = "#9ca3af"
+
+
+def _debt_payment_active(debt: dict, year: int, month: int, today: date) -> bool:
+    """Учитывать ли плановый ежемесячный платёж по долгу в балансе месяца
+    ``(year, month)``.
+
+    Платёж вычитается только за месяцы, в которых долг реально «жив»:
+    начиная с месяца создания долга и заканчивая ориентировочным месяцем
+    погашения (оценка от «сегодня» по плановой ставке). Иначе прошлые
+    месяцы показывали бы несуществовавший платёж, а будущие — платёж уже
+    после закрытия долга.
+    """
+    mp = debt.get("monthly_payment", 0) or 0
+    if mp <= 0:
+        return False
+    remaining = debt.get("remaining_amount", debt.get("total_amount", 0))
+    if remaining <= 0:
+        return False
+
+    viewed_idx = year * 12 + (month - 1)
+    start_idx = debt["year"] * 12 + (debt["month"] - 1)
+    today_idx = today.year * 12 + (today.month - 1)
+
+    if viewed_idx < start_idx:
+        return False              # долг ещё не существовал
+    if viewed_idx <= today_idx:
+        return True               # прошлое/текущее: remaining>0 ⇒ был активен
+    # будущее: не позже ориентировочного месяца погашения по плановой ставке
+    return viewed_idx <= today_idx + math.ceil(remaining / mp)
 
 # (camelCase-поле GUI, ключ в settings, преобразование значения в строку)
 _SETTINGS_MAP: list[tuple[str, str, Any]] = [
@@ -67,20 +98,12 @@ class FinanceModule(Module):
         inc_h1 = sum(i["amount"] for i in income if i["half"] == 1)
         inc_h2 = sum(i["amount"] for i in income if i["half"] == 2)
 
-        # Плановые ежемесячные платежи по непогашенным долгам.
-        debts = self.k.request("db", "get_debts")
-        pay_h1 = sum(
-            d["monthly_payment"] for d in debts
-            if d.get("monthly_payment", 0) > 0
-            and d.get("remaining_amount", d["total_amount"]) > 0
-            and d.get("payment_half", 2) == 1
-        )
-        pay_h2 = sum(
-            d["monthly_payment"] for d in debts
-            if d.get("monthly_payment", 0) > 0
-            and d.get("remaining_amount", d["total_amount"]) > 0
-            and d.get("payment_half", 2) == 2
-        )
+        # Плановые ежемесячные платежи по долгам, «живым» в этом месяце.
+        today = date.today()
+        active = [d for d in self.k.request("db", "get_debts")
+                  if _debt_payment_active(d, year, month, today)]
+        pay_h1 = sum(d["monthly_payment"] for d in active if d.get("payment_half", 2) == 1)
+        pay_h2 = sum(d["monthly_payment"] for d in active if d.get("payment_half", 2) == 2)
 
         return {
             "month": month,
