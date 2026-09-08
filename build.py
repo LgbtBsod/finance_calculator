@@ -99,6 +99,7 @@ def main() -> None:
         "--collect-submodules", "gui",
         "--collect-submodules", "core",
         "--collect-submodules", "modules",
+        "--collect-submodules", "db",
         "--collect-data", "work_calendar",
         "--exclude-module", "flet_desktop",
         "--exclude-module", "tkinter",

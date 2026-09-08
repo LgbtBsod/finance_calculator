@@ -1,10 +1,12 @@
-"""test_database.py — CRUD-операции DatabaseManager на изолированной in-memory БД."""
+"""test_database.py — CRUD-операции фасада ``Database`` (пакет ``db``) на
+изолированной in-memory БД. Слоёная раскладка db/ этих тестов не касается —
+поверхность методов сохранена 1-в-1."""
 
 from __future__ import annotations
 
 import pytest
 
-from database import DatabaseManager
+from db import DatabaseManager
 
 
 class TestSettings:

@@ -12,7 +12,7 @@ import pytest
 
 from calculator import BirthdayService, SalaryCalculator
 from core.bootstrap import build_kernel
-from database import DatabaseManager
+from db import DatabaseManager
 from prod_calendar import CalendarService
 from services import FinanceService
 

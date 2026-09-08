@@ -21,21 +21,22 @@
         │   db     │ │ cache │ │ cal │ │calc │ │birthdays│ │ finance │ │updater │
         │(SQLite)  │ │(TTL)  │ │endar│ │ulat.│ │         │ │(агрег.) │ │        │
         └────┬─────┘ └───────┘ └──┬──┘ └──┬──┘ └────┬────┘ └────┬────┘ └───┬────┘
-        database.py         prod_calendar  calculator.py             updater.py
-        (легаси, нетронутая — kernel-agnostic)
+        пакет db/          prod_calendar  calculator.py             updater.py
+        (легаси, kernel-agnostic)
 ```
 
 ### Правила изоляции (проверяются `tests/test_architecture.py` — AST-анализ)
 
 - ни один `modules/<X>` не импортирует `modules/<Y>`;
 - `modules/<X>` импортирует только: свой пакет, stdlib/third-party, `core.*`,
-  `models`, `config`, `paths`, и **свой** легаси-модуль (`modules/db` → `database`,
+  `models`, `config`, `paths`, и **свой** легаси-модуль (`modules/db` → пакет `db`,
   `modules/calendar` → `prod_calendar`, `modules/{calculator,birthdays}` → `calculator`,
   `modules/updater` → `updater`);
 - `services.py` (фасад) импортирует только `core.*` + stdlib;
-- легаси `database.py` / `calculator.py` / `prod_calendar.py` / `models.py` /
-  `config.py` не импортируют `core` / `modules` — остаются kernel-free, их
-  прямые юнит-тесты не тронуты;
+- легаси (пакет `db/` + `calculator.py` / `prod_calendar.py` / `models.py` /
+  `config.py`) не импортируют `core` / `modules` — остаются kernel-free (для
+  `db/` — позитивный allowlist: только stdlib + `config` + `models` + свой
+  пакет), их прямые юнит-тесты не тронуты;
 - `kernel.get_module()` / `kernel._modules` — только в `tests/` и `core/`.
 
 ### Ядро (`core/`)
@@ -123,20 +124,32 @@
 месяца = НДФЛ с дохода нарастающим итогом по этот месяц минус по предыдущий
 (`calculator.progressive_ndfl`).
 
-## Слои логики (легаси, не тронуты)
+## Слои логики (легаси — kernel-agnostic)
 
 1. **`config.py` / `models.py`** — доменные константы, иммутабельные модели,
    Enum'ы, Protocol'ы. Настройки — **единый источник** `config.SETTINGS`
    (`tuple[SettingSpec]`: camelCase-имя GUI + ключ БД + дефолт + тип); из него
-   выведены все три пути: `database._seed_defaults` (seed), `modules/finance`
+   выведены все три пути: `db.migrations.seed_defaults` (seed), `modules/finance`
    `_settings_get` (чтение, строка→тип), `_settings_update` (запись, тип→строка).
    Названия месяцев — SSOT в `config.MONTH_NOMINATIVE` / `MONTH_GENITIVE`
    (кортежи 1..12); словари «слово → номер» и `gui/format` выводятся из них.
-2. **`database.py`** — единственный модуль, знающий про SQL. Схема, аддитивные
-   миграции, CRUD → `TypedDict`. Аддитивно: `get_settings_bundle`; таблица
-   `income` (зеркало `expenses` без групп) и общий с расходами SQL-фрагмент
-   `_RECURRING_WHERE` (проекция повторяющихся строк вперёд, DRY); колонки
-   `debts.monthly_payment` / `debts.payment_half` + `update_debt`.
+2. **Пакет `db/`** — единственный слой, знающий про SQL. Слои:
+   - `db.engine` — ядро доступа: соединение (`:memory:` кэширует, файловое
+     пересоздаётся на каждый `_transaction`), PRAGMA, backup (двойной `close`
+     для Windows), **read-through кэш** горячих целотабличных чтений
+     (`settings_bundle`, `expense_groups`) с инвалидацией по write-пути и
+     поколением против гонки;
+   - `db.schema` — DDL (`executescript`); `db.migrations` — `bootstrap` +
+     аддитивные `ALTER` + `seed_defaults` + разовый перенос оклада в income;
+   - `db.query` — `_UNSET`, `RECURRING_WHERE` (проекция повторов вперёд, общая
+     для expenses/income), `period_overrides`, `build_update` (общий сборщик
+     частичного UPDATE);
+   - `db.rows` — мапперы `sqlite3.Row → TypedDict`;
+   - `db.repositories.*` — CRUD, по одному репозиторию на раздел (settings,
+     calendar, birthdays, expenses, income, vacations, groups, debts, undo);
+   - `db.facade` — класс `Database` (публичная поверхность 1-в-1 со старым
+     `DatabaseManager`, alias сохранён), его оборачивает `modules/db`.
+
    Спроецированная строка повтора помечается `projected=True` (id — оригинала
    из другого месяца) — удалить её нельзя, но сумму можно переопределить на
    один месяц: таблица `period_overrides (kind, row_id, year, month, amount)`,
@@ -179,7 +192,7 @@
 
 | Файл | Что |
 |------|-----|
-| `test_calculator/database/prod_calendar.py` | слои логики (без ядра) |
+| `test_calculator/database/prod_calendar.py` | слои логики (без ядра); `test_db_package.py` — golden-snapshot схемы, `build_update`, read-through кэш |
 | `test_kernel.py` | маршрутизация, жизненный цикл, события, валидация payload, изоляция KernelView |
 | `test_modules.py` | каждый модуль через ядро |
 | `test_architecture.py` | статическая гарантия изоляции (AST) |

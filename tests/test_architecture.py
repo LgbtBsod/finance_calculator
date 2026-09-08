@@ -5,7 +5,7 @@
   - modules/<X> импортирует только: свой пакет, stdlib/third-party, core.*,
     models, config, paths, и СВОЙ легаси-модуль (по allowlist ниже);
   - services.py импортирует только core.* + stdlib (не modules, не легаси);
-  - легаси (database/calculator/prod_calendar/models/config) не импортируют core/modules;
+  - легаси (пакет db/ + calculator/prod_calendar/models/config) не импортируют core/modules;
   - вне tests/ и core/ нет обращений к внутренностям ядра
     (get_module / _modules / _kernel) и нет динамических импортов (importlib / __import__).
 """
@@ -21,7 +21,7 @@ STDLIB = set(sys.stdlib_module_names)
 THIRD_PARTY = {"flet", "packaging", "certifi", "pdfplumber", "work_calendar", "openpyxl"}
 
 LEGACY_ALLOW = {
-    "db": {"database"},
+    "db": {"db"},
     "cache": set(),
     "calendar": {"prod_calendar"},
     "calculator": {"calculator"},
@@ -117,10 +117,19 @@ def test_services_facade_imports_only_core():
 
 
 def test_legacy_stays_kernel_agnostic():
-    for name in ("database", "calculator", "prod_calendar", "models", "config"):
-        roots = _import_roots(ROOT / f"{name}.py")
-        assert "core" not in roots, f"{name}.py импортирует core — легаси должно быть kernel-free"
-        assert "modules" not in roots, f"{name}.py импортирует modules"
+    single = [ROOT / f"{n}.py" for n in ("calculator", "prod_calendar", "models", "config")]
+    pkg = sorted(p for p in (ROOT / "db").rglob("*.py") if "__pycache__" not in p.parts)
+    # Пакет-ядро db/ — kernel-free: только stdlib/third-party + config + models + свой пакет.
+    db_allowed = STDLIB | THIRD_PARTY | {"db", "config", "models"}
+    for path in single + pkg:
+        roots = _import_roots(path)
+        assert "core" not in roots, f"{path.name} импортирует core — легаси должно быть kernel-free"
+        assert "modules" not in roots, f"{path.name} импортирует modules"
+        if path in pkg:
+            extra = roots - db_allowed
+            assert not extra, (
+                f"{path.relative_to(ROOT)} импортирует лишнее для kernel-agnostic пакета db/: {extra}"
+            )
 
 
 def test_modules_and_gui_never_touch_kernel_internals():

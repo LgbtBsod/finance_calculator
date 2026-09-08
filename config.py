@@ -61,7 +61,7 @@ MONTH_NAMES_GENITIVE: dict[str, int] = {
 # ── Доменные настройки: единый источник ────────────────────
 # Одна запись на настройку задаёт: имя в словаре GUI (camelCase), ключ строки
 # в таблице ``settings`` (snake_case), дефолт и тип. Отсюда выводятся:
-#   • database._seed_defaults      — первичное заполнение таблицы
+#   • db.migrations.seed_defaults  — первичное заполнение таблицы
 #   • modules/finance _settings_get   — чтение (строка БД -> типизированное)
 #   • modules/finance _settings_update — запись (значение GUI -> строка БД)
 # Все булевы хранятся строками "true"/"false" — их так читают

@@ -1,4 +1,4 @@
-"""DBModule — обёртка над database.DatabaseManager.
+"""DBModule — обёртка над пакетом ``db`` (фасад ``Database``).
 
 ЕДИНСТВЕННЫЙ модуль, знающий про SQL. После каждой записи шлёт
 ``db:changed`` (entity=...) — ядро диспатчит это событие после раскрутки
@@ -14,7 +14,7 @@ from typing import Any
 
 from core.errors import ValidationError
 from core.module import Module
-from database import DatabaseManager
+from db import DatabaseManager
 
 # read-действие -> метод DatabaseManager (чистый проброс **kw).
 _READS = {
@@ -124,7 +124,7 @@ class DBModule(Module):
     def _update_expense(self, eid: int, **kw: Any) -> dict | None:
         try:
             self.db.update_expense(eid=eid, **kw)
-        except ValueError as e:  # database.py: "Expense with id N not found"
+        except ValueError as e:  # db.repositories.expenses: "Expense with id N not found"
             raise ValidationError("Расход не найден — возможно, удалён в другой вкладке") from e
         self._changed("expenses")
         return next((e for e in self.db.get_expenses() if e["id"] == eid), None)

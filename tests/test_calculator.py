@@ -17,7 +17,7 @@ from datetime import date
 import pytest
 
 from calculator import SalaryCalculator, progressive_ndfl
-from database import DatabaseManager
+from db import DatabaseManager
 from models import DayKind
 
 # Эталонные значения из реальной таблицы (Лист1, строки 1-7):

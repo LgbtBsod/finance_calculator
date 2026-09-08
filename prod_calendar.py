@@ -436,7 +436,7 @@ class CalendarService:
         provider = self._get_provider(year)
         cutoff = int(self._get_setting("advance_cutoff_day") or 15)
         # Все булевы настройки хранятся как строки "true"/"false" (см.
-        # database.py._seed_defaults, modules/finance _settings_update) — "1"
+        # db.migrations.seed_defaults, modules/finance _settings_update) — "1"
         # здесь никогда не совпадал, и переключатель "Учитывать сокращённые
         # дни отдельно" не имел эффекта ни при каком положении.
         account_short = self._get_setting("account_shortened") == "true"
