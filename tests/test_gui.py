@@ -70,13 +70,21 @@ class TestPrefs:
 
 class TestTheme:
     def test_apply_light_dark(self):
+        # Палитра SAP Horizon: Morning / Evening (sapBackgroundColor).
         theme.apply("light")
-        assert theme.COLORS["bg"] == "#f5f6f8"
+        assert theme.COLORS["bg"] == "#f5f6f7"
+        assert theme.COLORS["accent"] == "#0070f2"   # sapBrandColor
         theme.apply("dark")
-        assert theme.COLORS["bg"] == "#0f141a"
+        assert theme.COLORS["bg"] == "#12171c"
         theme.apply("system", system_is_dark=True)
-        assert theme.COLORS["bg"] == "#0f141a"
+        assert theme.COLORS["bg"] == "#12171c"
         theme.apply("light")
+
+    def test_all_semantic_keys_present_in_both_palettes(self):
+        keys = set(theme._LIGHT)
+        assert keys == set(theme._DARK)
+        assert {"bg", "surface", "text", "border", "accent", "success", "danger",
+                "warning", "success_bg", "danger_bg", "warning_bg", "accent_bg"} <= keys
 
     def test_build_theme_ok(self):
         assert theme.build_theme(dark=True) is not None

@@ -76,12 +76,31 @@ class FinanceApp:
         self._rail = ft.NavigationRail(
             selected_index=0,
             label_type=ft.NavigationRailLabelType.ALL,
-            min_width=72,
-            min_extended_width=180,
+            min_width=76,
+            min_extended_width=204,
             extended=True,
-            group_alignment=-0.9,
+            group_alignment=-0.95,
+            bgcolor="transparent",
+            indicator_color=COLORS["selected_bg"],
+            indicator_shape=ft.RoundedRectangleBorder(radius=8),
+            selected_label_text_style=ft.TextStyle(
+                color=COLORS["selected_text"], weight=ft.FontWeight.W_600, size=12),
+            unselected_label_text_style=ft.TextStyle(color=COLORS["text_secondary"], size=12),
+            leading=ft.Container(
+                ft.Row(
+                    [ft.Icon(ft.Icons.SAVINGS_ROUNDED, color=COLORS["accent"], size=22),
+                     ft.Text("Финансы", weight=ft.FontWeight.W_700, size=15,
+                             color=COLORS["text"])],
+                    spacing=10,
+                ),
+                padding=ft.Padding(16, 18, 8, 18),
+            ),
             destinations=[
-                ft.NavigationRailDestination(icon=off, selected_icon=on, label=label)
+                ft.NavigationRailDestination(
+                    icon=ft.Icon(off, color=COLORS["text_secondary"]),
+                    selected_icon=ft.Icon(on, color=COLORS["selected_text"]),
+                    label=label,
+                )
                 for _key, label, off, on in _NAV
             ],
             on_change=self._on_nav_change,
@@ -89,9 +108,10 @@ class FinanceApp:
 
         # Один постоянный прокручиваемый контейнер — при перестройке вью
         # меняем только его .controls, поэтому позиция прокрутки не слетает.
-        self._scroll = ft.Column([], expand=True, scroll=ft.ScrollMode.AUTO)
-        self._host = ft.Container(self._scroll, expand=True, padding=24, bgcolor=COLORS["bg"])
-        self._rail_box = ft.Container(self._rail, bgcolor=COLORS["surface"])
+        self._scroll = ft.Column([], expand=True, scroll=ft.ScrollMode.AUTO, spacing=0)
+        self._host = ft.Container(self._scroll, expand=True,
+                                  padding=ft.Padding(32, 28, 32, 28), bgcolor=COLORS["bg"])
+        self._rail_box = ft.Container(self._rail, bgcolor=COLORS["shell"], padding=ft.Padding(6, 0, 6, 0))
         self._divider = ft.VerticalDivider(width=1, color=COLORS["border"])
         page.add(
             ft.Row(
@@ -126,9 +146,18 @@ class FinanceApp:
         if self._host is not None:
             self._host.bgcolor = COLORS["bg"]
         if self._rail_box is not None:
-            self._rail_box.bgcolor = COLORS["surface"]
+            self._rail_box.bgcolor = COLORS["shell"]
         if self._divider is not None:
             self._divider.color = COLORS["border"]
+        if self._rail is not None:
+            self._rail.indicator_color = COLORS["selected_bg"]
+            self._rail.selected_label_text_style = ft.TextStyle(
+                color=COLORS["selected_text"], weight=ft.FontWeight.W_600, size=12)
+            self._rail.unselected_label_text_style = ft.TextStyle(
+                color=COLORS["text_secondary"], size=12)
+            for d, (_k, _l, off, on) in zip(self._rail.destinations, _NAV, strict=True):
+                d.icon = ft.Icon(off, color=COLORS["text_secondary"])
+                d.selected_icon = ft.Icon(on, color=COLORS["selected_text"])
 
     def _ensure_theme(self) -> None:
         """Пере-применить тему, если общий prefs изменился в другой сессии
