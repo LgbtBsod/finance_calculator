@@ -11,7 +11,7 @@ from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from pathlib import Path
 
-from config import get_settings
+from config import SETTINGS
 from models import (
     BirthdayRow,
     CalendarRow,
@@ -269,29 +269,12 @@ class DatabaseManager:
         c.commit()
 
     def _seed_defaults(self, c: sqlite3.Connection) -> None:
-        """Первичное заполнение таблицы settings из AppSettings (единственный
-        источник доменных дефолтов). bool → 'true'/'false' (строковый вид,
-        который читают calculator/finance)."""
-        s = get_settings()
-        defaults = {
-            "base_salary": str(s.base_salary),
-            "tax_rate": str(s.tax_rate),
-            "kef": str(s.kef),
-            "standard_hours": str(s.standard_hours),
-            "advance_cutoff_day": str(s.advance_cutoff_day),
-            "is_advance_date_inclusive": str(s.is_advance_date_inclusive).lower(),
-            "account_shortened": str(s.account_shortened).lower(),
-            "payout_day1": str(s.payout_day1),
-            "payout_day2": str(s.payout_day2),
-            "move_weekend_to_friday": str(s.move_weekend_to_friday).lower(),
-            "salary_calculation_method": s.salary_calculation_method,
-            "first_half_ratio": str(s.first_half_ratio),
-            "second_half_ratio": str(s.second_half_ratio),
-        }
-        for k, v in defaults.items():
+        """Первичное заполнение таблицы settings из config.SETTINGS —
+        единственного источника доменных дефолтов."""
+        for spec in SETTINGS:
             c.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-                (k, v),
+                (spec.key, spec.to_str(spec.default)),
             )
         c.commit()
 

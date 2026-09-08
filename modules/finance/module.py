@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import math
 from datetime import date
-from typing import Any
 
+from config import SETTINGS
 from core.module import Module
 
 _DEFAULT_GROUP_COLOR = "#9ca3af"
@@ -43,23 +43,6 @@ def _debt_payment_active(debt: dict, year: int, month: int, today: date) -> bool
         return True               # прошлое/текущее: remaining>0 ⇒ был активен
     # будущее: не позже ориентировочного месяца погашения по плановой ставке
     return viewed_idx <= today_idx + math.ceil(remaining / mp)
-
-# (camelCase-поле GUI, ключ в settings, преобразование значения в строку)
-_SETTINGS_MAP: list[tuple[str, str, Any]] = [
-    ("baseSalary", "base_salary", str),
-    ("taxRate", "tax_rate", str),
-    ("kef", "kef", str),
-    ("advanceCutoffDay", "advance_cutoff_day", str),
-    ("isAdvanceDateInclusive", "is_advance_date_inclusive", lambda v: str(v).lower()),
-    ("accountShortened", "account_shortened", lambda v: str(v).lower()),
-    ("standardHours", "standard_hours", str),
-    ("payoutDay1", "payout_day1", str),
-    ("payoutDay2", "payout_day2", str),
-    ("moveWeekendToFriday", "move_weekend_to_friday", lambda v: str(v).lower()),
-    ("salaryCalculationMethod", "salary_calculation_method", str),
-    ("firstHalfRatio", "first_half_ratio", str),
-    ("secondHalfRatio", "second_half_ratio", str),
-]
 
 
 class FinanceModule(Module):
@@ -203,28 +186,10 @@ class FinanceModule(Module):
 
     def _settings_get(self) -> dict:
         b = self.k.request("db", "get_settings_bundle")
-
-        def g(key: str, default: str) -> str:
-            return b.get(key) or default
-
-        return {
-            "baseSalary": float(g("base_salary", "100000")),
-            "taxRate": float(g("tax_rate", "13")),
-            "kef": float(g("kef", "1.0")),
-            "advanceCutoffDay": int(g("advance_cutoff_day", "15")),
-            "isAdvanceDateInclusive": b.get("is_advance_date_inclusive") == "true",
-            "accountShortened": b.get("account_shortened") == "true",
-            "standardHours": int(g("standard_hours", "40")),
-            "payoutDay1": int(g("payout_day1", "10")),
-            "payoutDay2": int(g("payout_day2", "25")),
-            "moveWeekendToFriday": b.get("move_weekend_to_friday") == "true",
-            "salaryCalculationMethod": g("salary_calculation_method", "proportional"),
-            "firstHalfRatio": float(g("first_half_ratio", "0.4")),
-            "secondHalfRatio": float(g("second_half_ratio", "0.6")),
-        }
+        return {s.camel: s.parse(b.get(s.key)) for s in SETTINGS}
 
     def _settings_update(self, updates: dict) -> dict:
-        for field, key, to_str in _SETTINGS_MAP:
-            if field in updates and updates[field] is not None:
-                self.k.request("db", "set_setting", key=key, value=to_str(updates[field]))
+        for s in SETTINGS:
+            if updates.get(s.camel) is not None:
+                self.k.request("db", "set_setting", key=s.key, value=s.to_str(updates[s.camel]))
         return self._settings_get()

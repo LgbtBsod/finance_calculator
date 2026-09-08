@@ -1,8 +1,5 @@
 # Runtime-зависимости. Python 3.12+ (тестируется на 3.14).
 flet[web]>=0.86.5,<0.90
-pydantic>=2.5.0
-pydantic-settings>=2.0.0
-python-dotenv>=1.0.0
 packaging>=23.0            # сравнение версий по PEP 440 в self-updater
 certifi>=2024.2.2          # CA-бандл для HTTPS-запросов self-updater из frozen-сборки
 work-calendar>=1.1         # производственный календарь РФ

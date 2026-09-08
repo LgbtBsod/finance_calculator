@@ -35,8 +35,6 @@ NAME = "FinanceCalculator"
 BUILD_DEPS = [
     "pyinstaller>=6.10",
     "flet[web]==0.86.5",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.0.0",
     "packaging>=23.0",
     "certifi>=2024.2.2",
     "work-calendar>=1.1",
@@ -60,7 +58,7 @@ def install_deps() -> None:
         sys.exit(1)
     probe = subprocess.run(
         [sys.executable, "-c",
-         "import flet, flet_web, pydantic, packaging, certifi, work_calendar, PyInstaller"],
+         "import flet, flet_web, packaging, certifi, work_calendar, PyInstaller"],
         capture_output=True, text=True,
     )
     if probe.returncode != 0:

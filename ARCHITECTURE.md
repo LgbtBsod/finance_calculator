@@ -104,11 +104,13 @@
 
 ## Слои логики (легаси, не тронуты)
 
-1. **`config.py` / `models.py`** — константы, дефолты доменных настроек
-   (`AppSettings`, единственный потребитель — `database._seed_defaults`),
-   иммутабельные модели, Enum'ы, Protocol'ы. Названия месяцев — SSOT в
-   `config.MONTH_NOMINATIVE` / `MONTH_GENITIVE` (кортежи 1..12); словари
-   «слово → номер» и `gui/format` выводятся из них.
+1. **`config.py` / `models.py`** — доменные константы, иммутабельные модели,
+   Enum'ы, Protocol'ы. Настройки — **единый источник** `config.SETTINGS`
+   (`tuple[SettingSpec]`: camelCase-имя GUI + ключ БД + дефолт + тип); из него
+   выведены все три пути: `database._seed_defaults` (seed), `modules/finance`
+   `_settings_get` (чтение, строка→тип), `_settings_update` (запись, тип→строка).
+   Названия месяцев — SSOT в `config.MONTH_NOMINATIVE` / `MONTH_GENITIVE`
+   (кортежи 1..12); словари «слово → номер» и `gui/format` выводятся из них.
 2. **`database.py`** — единственный модуль, знающий про SQL. Схема, аддитивные
    миграции, CRUD → `TypedDict`. Аддитивно: `get_settings_bundle`; таблица
    `income` (зеркало `expenses` без групп) и общий с расходами SQL-фрагмент

@@ -18,8 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STDLIB = set(sys.stdlib_module_names)
-THIRD_PARTY = {"flet", "packaging", "certifi", "pdfplumber", "work_calendar", "pydantic",
-               "pydantic_settings", "dotenv", "openpyxl"}
+THIRD_PARTY = {"flet", "packaging", "certifi", "pdfplumber", "work_calendar", "openpyxl"}
 
 LEGACY_ALLOW = {
     "db": {"database"},
