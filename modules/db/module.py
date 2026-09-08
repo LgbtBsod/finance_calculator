@@ -57,6 +57,9 @@ class DBModule(Module):
             "add_income": self._add_income,
             "update_income": self._update_income,
             "delete_income": self._delete_income,
+            # переопределение суммы повтора на конкретный месяц
+            "set_period_override": self._set_period_override,
+            "clear_period_override": self._clear_period_override,
             # undo удаления (снимок -> восстановление)
             "restore_deleted": self._restore_deleted,
             # expense groups
@@ -152,6 +155,15 @@ class DBModule(Module):
 
     def _delete_income(self, iid: int) -> dict:
         return self._delete_undoable("income", iid, self.db.delete_income, ["income"])
+
+    def _set_period_override(self, kind: str, row_id: int, year: int,
+                             month: int, amount: float) -> None:
+        self.db.set_period_override(kind, row_id, year, month, amount)
+        self._changed("expenses" if kind == "expense" else "income")
+
+    def _clear_period_override(self, kind: str, row_id: int, year: int, month: int) -> None:
+        self.db.clear_period_override(kind, row_id, year, month)
+        self._changed("expenses" if kind == "expense" else "income")
 
     # ── expense groups ───────────────────────────────────────
 

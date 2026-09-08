@@ -90,6 +90,57 @@ class TestDebtMonthlyPayment:
         assert upd["monthlyPayment"] == 500 and upd["paymentHalf"] == 1
 
 
+class TestPerMonthOverride:
+    def test_override_changes_only_one_projected_month(self, service: FinanceService):
+        e = service.create_expense(name="Аренда", amount=30000, half=1, month=1, year=2025,
+                                   is_recurring=True)
+        service.set_month_amount("expense", e["id"], year=2025, month=5, amount=35000)
+
+        assert service.list_expenses(1, 2025)[0]["amount"] == 30000   # оригинал не тронут
+        assert service.list_expenses(4, 2025)[0]["amount"] == 30000   # соседний месяц
+        may = service.list_expenses(5, 2025)[0]
+        assert may["amount"] == 35000 and may["overridden"] is True
+
+    def test_override_flows_into_balance(self, service: FinanceService):
+        service.update_settings({"baseSalary": 100000, "taxRate": 0, "kef": 1.0})
+        e = service.create_expense(name="Аренда", amount=30000, half=1, month=1, year=2025,
+                                   is_recurring=True)
+        base = service.balance(5, 2025)["expensesHalf1"]
+        service.set_month_amount("expense", e["id"], year=2025, month=5, amount=50000)
+        assert service.balance(5, 2025)["expensesHalf1"] == base + 20000
+
+    def test_clear_override_restores_recurring_amount(self, service: FinanceService):
+        e = service.create_expense(name="x", amount=1000, half=1, month=1, year=2025,
+                                   is_recurring=True)
+        service.set_month_amount("expense", e["id"], year=2025, month=6, amount=1500)
+        service.clear_month_amount("expense", e["id"], year=2025, month=6)
+        row = service.list_expenses(6, 2025)[0]
+        assert row["amount"] == 1000 and row["overridden"] is False
+
+    def test_income_override(self, service: FinanceService):
+        i = service.create_income(name="Премия", amount=10000, half=2, month=1, year=2025,
+                                  is_recurring=True)
+        service.set_month_amount("income", i["id"], year=2025, month=3, amount=25000)
+        assert service.list_income(3, 2025)[0]["amount"] == 25000
+        assert service.list_income(2, 2025)[0]["amount"] == 10000
+
+    def test_deleting_origin_removes_projected_rows_and_overrides(self, service: FinanceService):
+        e = service.create_expense(name="x", amount=1000, half=1, month=1, year=2025,
+                                   is_recurring=True)
+        service.set_month_amount("expense", e["id"], year=2025, month=6, amount=1500)
+        service.delete_expense(e["id"])
+        assert service.list_expenses(6, 2025) == []
+        assert service.list_expenses(1, 2025) == []
+
+    def test_undo_delete_restores_overrides_too(self, service: FinanceService):
+        e = service.create_expense(name="x", amount=1000, half=1, month=1, year=2025,
+                                   is_recurring=True)
+        service.set_month_amount("expense", e["id"], year=2025, month=6, amount=1500)
+        snap = service.delete_expense(e["id"])["undo"]
+        service.restore_deleted(snap)
+        assert service.list_expenses(6, 2025)[0]["amount"] == 1500
+
+
 class TestUndoDelete:
     def test_expense_delete_returns_snapshot_and_restore_brings_it_back(
         self, service: FinanceService

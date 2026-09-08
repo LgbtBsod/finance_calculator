@@ -171,9 +171,11 @@ class ExpenseRow(TypedDict):
     group_id: str | None
     recurring_until: str | None
     # True для строки, спроецированной повторяющимся правилом на запрошенный
-    # период (id/created — оригинала из другого месяца). Правка/удаление
-    # такой строки затронули бы всю серию — GUI это блокирует.
+    # период (id/created — оригинала из другого месяца). Удаление такой строки
+    # затронуло бы всю серию — GUI это блокирует; сумму можно переопределить
+    # на конкретный месяц (overridden).
     projected: bool
+    overridden: bool
 
 
 class IncomeRow(TypedDict):
@@ -186,6 +188,7 @@ class IncomeRow(TypedDict):
     is_recurring: bool
     recurring_until: str | None
     projected: bool
+    overridden: bool
 
 
 class BirthdayRow(TypedDict):

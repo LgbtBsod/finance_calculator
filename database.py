@@ -242,6 +242,17 @@ class DatabaseManager:
                     FOREIGN KEY (debt_id) REFERENCES debts(id) ON DELETE CASCADE
                 );
 
+                -- Переопределение суммы повторяющейся строки на конкретный
+                -- месяц ("в этом месяце счёт был больше"). kind: expense|income.
+                CREATE TABLE IF NOT EXISTS period_overrides (
+                    kind    TEXT    NOT NULL,
+                    row_id  INTEGER NOT NULL,
+                    year    INTEGER NOT NULL,
+                    month   INTEGER NOT NULL,
+                    amount  REAL    NOT NULL,
+                    PRIMARY KEY (kind, row_id, year, month)
+                );
+
                 -- Расходы/доходы почти всегда фильтруются по (year, month);
                 -- погашения долга — по debt_id (см. get_expenses/get_debts).
                 CREATE INDEX IF NOT EXISTS idx_expenses_year_month ON expenses(year, month);
@@ -477,16 +488,50 @@ class DatabaseManager:
                     f"SELECT {cols} FROM expenses WHERE {_RECURRING_WHERE} ORDER BY half, id",
                     {"month": month, "year": year},
                 ).fetchall()
-                return [_expense_from_row(r, view_month=month, view_year=year) for r in rows]
+                ov = self._period_overrides(c, "expense", year, month)
+                return [
+                    _expense_from_row(r, view_month=month, view_year=year,
+                                      override_amount=ov.get(r["id"]))
+                    for r in rows
+                ]
 
             rows = c.execute(
                 f"SELECT {cols} FROM expenses ORDER BY year, month, half, id"
             ).fetchall()
             return [_expense_from_row(r) for r in rows]
 
+    @staticmethod
+    def _period_overrides(c: sqlite3.Connection, kind: str, year: int,
+                          month: int) -> dict[int, float]:
+        return {
+            r["row_id"]: r["amount"]
+            for r in c.execute(
+                "SELECT row_id, amount FROM period_overrides "
+                "WHERE kind=? AND year=? AND month=?", (kind, year, month)
+            ).fetchall()
+        }
+
+    def set_period_override(self, kind: str, row_id: int, year: int,
+                            month: int, amount: float) -> None:
+        with self._transaction() as c:
+            c.execute(
+                "INSERT INTO period_overrides (kind, row_id, year, month, amount) "
+                "VALUES (?,?,?,?,?) "
+                "ON CONFLICT(kind, row_id, year, month) DO UPDATE SET amount=excluded.amount",
+                (kind, row_id, year, month, amount),
+            )
+
+    def clear_period_override(self, kind: str, row_id: int, year: int, month: int) -> None:
+        with self._transaction() as c:
+            c.execute(
+                "DELETE FROM period_overrides WHERE kind=? AND row_id=? AND year=? AND month=?",
+                (kind, row_id, year, month),
+            )
+
     def delete_expense(self, eid: int) -> None:
         with self._transaction() as c:
             c.execute("DELETE FROM expenses WHERE id=?", (eid,))
+            c.execute("DELETE FROM period_overrides WHERE kind='expense' AND row_id=?", (eid,))
 
     def update_expense(
         self,
@@ -571,7 +616,12 @@ class DatabaseManager:
                     f"SELECT {cols} FROM income WHERE {_RECURRING_WHERE} ORDER BY half, id",
                     {"month": month, "year": year},
                 ).fetchall()
-                return [_income_from_row(r, view_month=month, view_year=year) for r in rows]
+                ov = self._period_overrides(c, "income", year, month)
+                return [
+                    _income_from_row(r, view_month=month, view_year=year,
+                                     override_amount=ov.get(r["id"]))
+                    for r in rows
+                ]
             rows = c.execute(
                 f"SELECT {cols} FROM income ORDER BY year, month, half, id"
             ).fetchall()
@@ -579,6 +629,7 @@ class DatabaseManager:
 
     def delete_income(self, iid: int) -> None:
         with self._transaction() as c:
+            c.execute("DELETE FROM period_overrides WHERE kind='income' AND row_id=?", (iid,))
             c.execute("DELETE FROM income WHERE id=?", (iid,))
 
     def update_income(
@@ -842,6 +893,13 @@ class DatabaseManager:
                         "FROM debt_repayments WHERE debt_id=?", (row_id,)
                     ).fetchall()
                 ]
+            if kind in ("expense", "income"):
+                snap["overrides"] = [
+                    dict(r) for r in c.execute(
+                        "SELECT kind, row_id, year, month, amount FROM period_overrides "
+                        "WHERE kind=? AND row_id=?", (kind, row_id)
+                    ).fetchall()
+                ]
         return snap
 
     def restore_from_undo(self, snapshot: dict) -> None:
@@ -861,6 +919,11 @@ class DatabaseManager:
                 c.execute(
                     "INSERT OR IGNORE INTO debt_repayments (id, debt_id, amount, date, note) "
                     "VALUES (:id, :debt_id, :amount, :date, :note)", rp
+                )
+            for ov in snapshot.get("overrides", []):
+                c.execute(
+                    "INSERT OR IGNORE INTO period_overrides (kind, row_id, year, month, amount) "
+                    "VALUES (:kind, :row_id, :year, :month, :amount)", ov
                 )
 
     # ═════════════════════════════════════════════════════════
@@ -897,8 +960,16 @@ class DatabaseManager:
 # ── helper: правильно конвертировать sqlite3.Row -> ExpenseRow ──
 
 
+def _apply_override(d: dict, override_amount: float | None) -> None:
+    """Переопределение суммы на конкретный месяц (period_overrides)."""
+    d["overridden"] = override_amount is not None
+    if override_amount is not None:
+        d["amount"] = override_amount
+
+
 def _expense_from_row(
-    r: sqlite3.Row, *, view_month: int | None = None, view_year: int | None = None
+    r: sqlite3.Row, *, view_month: int | None = None, view_year: int | None = None,
+    override_amount: float | None = None,
 ) -> ExpenseRow:
     """sqlite3.Row → ExpenseRow с корректным типом is_recurring (bool).
 
@@ -906,7 +977,8 @@ def _expense_from_row(
     get_expenses), месяц/год в результате подменяются на запрошенный
     период — иначе спроецированный повторяющийся расход показывал бы
     месяц своего создания, а не месяц, на который он сейчас
-    распространяется.
+    распространяется. override_amount (из period_overrides) заменяет сумму
+    для этого месяца.
     """
     d = dict(r)
     d["is_recurring"] = bool(d["is_recurring"])
@@ -919,6 +991,7 @@ def _expense_from_row(
     if view_month is not None and view_year is not None:
         d["month"] = view_month
         d["year"] = view_year
+    _apply_override(d, override_amount)
     return ExpenseRow(**d)
 
 
@@ -934,7 +1007,8 @@ def _is_projected(row: dict, view_month: int | None, view_year: int | None) -> b
 
 
 def _income_from_row(
-    r: sqlite3.Row, *, view_month: int | None = None, view_year: int | None = None
+    r: sqlite3.Row, *, view_month: int | None = None, view_year: int | None = None,
+    override_amount: float | None = None,
 ) -> IncomeRow:
     """sqlite3.Row → IncomeRow (см. _expense_from_row — та же логика проекции)."""
     d = dict(r)
@@ -944,4 +1018,5 @@ def _income_from_row(
     if view_month is not None and view_year is not None:
         d["month"] = view_month
         d["year"] = view_year
+    _apply_override(d, override_amount)
     return IncomeRow(**d)

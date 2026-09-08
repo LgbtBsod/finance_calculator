@@ -102,6 +102,7 @@ class FinanceService:
             "isRecurring": e.get("is_recurring", False),
             "recurringUntil": e.get("recurring_until"),
             "projected": e.get("projected", False),
+            "overridden": e.get("overridden", False),
             "month": e["month"],
             "year": e["year"],
         }
@@ -151,6 +152,17 @@ class FinanceService:
     def delete_expense(self, item_id: str) -> dict:
         return self.k.request("db", "delete_expense", eid=int(item_id))
 
+    def set_month_amount(self, kind: str, row_id: str, *, year: int, month: int,
+                         amount: float) -> None:
+        """Переопределить сумму повторяющейся строки (kind: 'expense'|'income')
+        на конкретный месяц — не трогая оригинал и другие месяцы."""
+        self.k.request("db", "set_period_override", kind=kind, row_id=int(row_id),
+                       year=year, month=month, amount=amount)
+
+    def clear_month_amount(self, kind: str, row_id: str, *, year: int, month: int) -> None:
+        self.k.request("db", "clear_period_override", kind=kind, row_id=int(row_id),
+                       year=year, month=month)
+
     # ═══════════════════════ income ═══════════════════════
 
     @staticmethod
@@ -163,6 +175,7 @@ class FinanceService:
             "isRecurring": i.get("is_recurring", False),
             "recurringUntil": i.get("recurring_until"),
             "projected": i.get("projected", False),
+            "overridden": i.get("overridden", False),
             "month": i["month"],
             "year": i["year"],
         }

@@ -147,10 +147,19 @@ class ExpensesView(View):
             tail = f" до {format_date_ru(item['recurringUntil'])}" if item["recurringUntil"] else ""
             badges.append(hint(("повтор (оригинал в другом месяце)" if item.get("projected")
                                 else "повтор") + tail))
+        if item.get("overridden"):
+            badges.append(hint("сумма изменена на этот месяц"))
 
         if item.get("projected"):
-            controls = [icon_button(ft.Icons.LOCK_OUTLINE, lambda e: self._explain_projected(),
-                                    tooltip="Повторяющаяся запись — правьте оригинал")]
+            controls = [
+                icon_button(ft.Icons.EDIT_CALENDAR_OUTLINED,
+                            lambda e, it=item: self._open_month_amount(it),
+                            tooltip="Изменить сумму только на этот месяц"),
+            ]
+            if item.get("overridden"):
+                controls.append(icon_button(
+                    ft.Icons.RESTORE, lambda e, it=item: self._reset_month_amount(it),
+                    tooltip="Вернуть сумму как в повторе"))
         else:
             controls = [
                 icon_button(ft.Icons.EDIT_OUTLINED, lambda e, it=item: self._open_form(it, None),
@@ -171,9 +180,42 @@ class ExpensesView(View):
             ft.Row(badges, wrap=True, spacing=8),
         )
 
-    def _explain_projected(self) -> None:
-        self.toast("Это повторяющийся расход, показанный на этот месяц. Чтобы изменить "
-                   "или удалить его, откройте «За все периоды» и правьте оригинал.", error=True)
+    def _open_month_amount(self, item: dict) -> None:
+        page = self.app.page
+        fld = text_field(f"Сумма на {MONTH_NAMES_RU[item['month']]} {item['year']}",
+                         str(item["amount"]), keyboard="number")
+
+        def save(e):
+            try:
+                amt = float((fld.value or "").replace(",", "."))
+            except ValueError:
+                self.toast("Введите сумму", error=True)
+                return
+            if amt <= 0:
+                self.toast("Сумма должна быть больше нуля", error=True)
+                return
+            page.pop_dialog()
+            self.guard(lambda: self.svc.set_month_amount(
+                "expense", item["id"], year=item["year"], month=item["month"], amount=amt),
+                ok="Сумма на месяц изменена")
+
+        show_modal(
+            page, "Сумма повтора на этот месяц",
+            ft.Column([
+                hint("Меняется только этот месяц. Оригинал повтора и остальные "
+                     "месяцы не затрагиваются."),
+                fld,
+            ], tight=True, spacing=10),
+            [
+                ft.TextButton("Отмена", on_click=lambda e: page.pop_dialog()),
+                ft.FilledButton("Сохранить", on_click=save),
+            ],
+        )
+
+    def _reset_month_amount(self, item: dict) -> None:
+        self.guard(lambda: self.svc.clear_month_amount(
+            "expense", item["id"], year=item["year"], month=item["month"]),
+            ok="Сумма возвращена как в повторе")
 
     # ── обработчики фильтров ─────────────────────────────────
 

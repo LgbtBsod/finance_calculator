@@ -121,10 +121,13 @@
    `_RECURRING_WHERE` (проекция повторяющихся строк вперёд, DRY); колонки
    `debts.monthly_payment` / `debts.payment_half` + `update_debt`.
    Спроецированная строка повтора помечается `projected=True` (id — оригинала
-   из другого месяца) — GUI блокирует её правку/удаление.
+   из другого месяца) — удалить её нельзя, но сумму можно переопределить на
+   один месяц: таблица `period_overrides (kind, row_id, year, month, amount)`,
+   `set_period_override` / `clear_period_override`, применяется в
+   `get_expenses`/`get_income` поверх проекции (`overridden=True`).
    Удаление обратимо: `snapshot_for_undo(kind, id)` снимает строку (+ платежи
-   долга) до `delete_*`, `restore_from_undo(snapshot)` вставляет её обратно
-   1-в-1 (`INSERT OR IGNORE`, тот же id); GUI показывает снекбар «Отменить».
+   долга / + оверрайды) до `delete_*`, `restore_from_undo(snapshot)` вставляет
+   её обратно 1-в-1 (`INSERT OR IGNORE`, тот же id); GUI — снекбар «Отменить».
 3. **`calculator.py`** — чистая бизнес-логика (зарплата, баланс, триггеры ДР).
 4. **`prod_calendar.py`** — производственный календарь РФ (`work-calendar` +
    декоратор ручных поправок + опциональный парсер PDF).
