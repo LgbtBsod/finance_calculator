@@ -35,6 +35,9 @@ class View:
         return []
 
     def render(self) -> ft.Control:
+        # Один процесс Flet обслуживает несколько вкладок; тема (общий prefs)
+        # могла смениться в другой вкладке — синхронизируемся перед сборкой.
+        self.app._ensure_theme()
         children: list[ft.Control] = []
         if self.title:
             children.append(section_title(self.title))

@@ -47,7 +47,11 @@ class FinanceApp:
         self.current_view = "balance"
         self._views: dict[str, object] = {}
         self._rail: ft.NavigationRail | None = None
+        self._rail_box: ft.Container | None = None
+        self._divider: ft.VerticalDivider | None = None
         self._host: ft.Container | None = None
+        self._scroll: ft.Column | None = None
+        self._theme_mode: str | None = None
 
     # ── lifecycle ─────────────────────────────────────────────
 
@@ -83,14 +87,15 @@ class FinanceApp:
             on_change=self._on_nav_change,
         )
 
-        self._host = ft.Container(expand=True, padding=24, bgcolor=COLORS["bg"])
+        # Один постоянный прокручиваемый контейнер — при перестройке вью
+        # меняем только его .controls, поэтому позиция прокрутки не слетает.
+        self._scroll = ft.Column([], expand=True, scroll=ft.ScrollMode.AUTO)
+        self._host = ft.Container(self._scroll, expand=True, padding=24, bgcolor=COLORS["bg"])
+        self._rail_box = ft.Container(self._rail, bgcolor=COLORS["surface"])
+        self._divider = ft.VerticalDivider(width=1, color=COLORS["border"])
         page.add(
             ft.Row(
-                [
-                    ft.Container(self._rail, bgcolor=COLORS["surface"]),
-                    ft.VerticalDivider(width=1, color=COLORS["border"]),
-                    self._host,
-                ],
+                [self._rail_box, self._divider, self._host],
                 expand=True,
                 spacing=0,
             )
@@ -109,18 +114,31 @@ class FinanceApp:
     def _apply_theme(self) -> None:
         page = self.page
         mode = self.prefs.get("theme_mode") or "system"
+        self._theme_mode = mode
         system_dark = getattr(page, "platform_brightness", None) == ft.Brightness.DARK
         theme.apply(mode, system_is_dark=system_dark)
         page.theme = theme.build_theme(dark=False)
         page.dark_theme = theme.build_theme(dark=True)
         page.theme_mode = ft.ThemeMode(mode)
         page.bgcolor = COLORS["bg"]
+        # Перекрасить закешированные контейнеры оболочки (рейл/дивайдер/хост)
+        # — они строятся один раз и сами тему не подхватывают.
+        if self._host is not None:
+            self._host.bgcolor = COLORS["bg"]
+        if self._rail_box is not None:
+            self._rail_box.bgcolor = COLORS["surface"]
+        if self._divider is not None:
+            self._divider.color = COLORS["border"]
+
+    def _ensure_theme(self) -> None:
+        """Пере-применить тему, если общий prefs изменился в другой сессии
+        (один процесс Flet обслуживает несколько вкладок браузера)."""
+        if (self.prefs.get("theme_mode") or "system") != self._theme_mode:
+            self._apply_theme()
 
     def set_theme_mode(self, mode: str) -> None:
         self.prefs.update(theme_mode=mode)
         self._apply_theme()
-        if self._host is not None:
-            self._host.bgcolor = COLORS["bg"]
         self.rerender()
         self.page.update()
 
@@ -133,10 +151,11 @@ class FinanceApp:
 
     def navigate(self, key: str) -> None:
         self.current_view = key
-        view = self._views[key]
-        self._host.content = ft.Column(
-            [view.render()], expand=True, scroll=ft.ScrollMode.AUTO
+        # Новый экран — свежий scroll-контейнер, т.е. с самого верха.
+        self._scroll = ft.Column(
+            [self._views[key].render()], expand=True, scroll=ft.ScrollMode.AUTO
         )
+        self._host.content = self._scroll
         if self._rail is not None:
             self._rail.selected_index = next(
                 (i for i, n in enumerate(_NAV) if n[0] == key), 0
@@ -144,11 +163,9 @@ class FinanceApp:
         self.page.update()
 
     def rerender(self) -> None:
-        """Перестроить текущее вью с нуля (после мутации данных)."""
-        view = self._views[self.current_view]
-        self._host.content = ft.Column(
-            [view.render()], expand=True, scroll=ft.ScrollMode.AUTO
-        )
+        """Перестроить текущее вью после мутации данных — позицию прокрутки
+        сохраняем (тот же контейнер, меняем только .controls)."""
+        self._scroll.controls = [self._views[self.current_view].render()]
         self.page.update()
 
     # ── helpers ──────────────────────────────────────────────

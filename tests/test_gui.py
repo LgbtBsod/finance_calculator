@@ -89,6 +89,9 @@ class _FakeApp:
         self.page = None
         self.prefs = prefs
 
+    def _ensure_theme(self):  # вью вызывает при render(); в тестах — no-op
+        pass
+
 
 @pytest.fixture
 def fake_app(tmp_path):
@@ -111,11 +114,15 @@ def test_all_views_render(fake_app):
     from gui.views.birthdays import BirthdaysView
     from gui.views.debts import DebtsView
     from gui.views.expenses import ExpensesView, GroupsView
+    from gui.views.income import IncomeView
     from gui.views.settings import SettingsView
     from gui.views.vacations import VacationsView
 
+    fake_app.service.create_income(name="Аренда", amount=20000, half=1,
+                                   month=date.today().month, year=date.today().year)
+
     for cls in (
-        BalanceView, ExpensesView, GroupsView, VacationsView,
+        BalanceView, IncomeView, ExpensesView, GroupsView, VacationsView,
         BirthdaysView, DebtsView, AnalyticsView, SettingsView,
     ):
         assert cls(fake_app).render() is not None
