@@ -204,9 +204,15 @@ class FinanceModule(Module):
                 }
                 for gid, amount in by_group.items()
             ]
-            out.append(
-                {"month": pm, "year": py, "total": sum(by_group.values()), "categories": categories}
-            )
+            # Доход месяца: к выплате по зарплате (обе половины) + прочий доход.
+            bal = self._balance(pm, py)   # кэшируется под balance:YYYY-MM
+            income = (bal["toPayHalf1"] + bal["toPayHalf2"]
+                      + bal["incomeHalf1"] + bal["incomeHalf2"])
+            spent = sum(by_group.values())
+            out.append({
+                "month": pm, "year": py, "total": spent, "categories": categories,
+                "income": income, "net": income - spent,
+            })
         return {"months": out}
 
     # ── изменение к прошлому месяцу ───────────────────────────

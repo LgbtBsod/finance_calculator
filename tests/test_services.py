@@ -275,6 +275,15 @@ class TestAnalytics:
         d = service.category_diff(1, 2025)
         assert (d["prevMonth"], d["prevYear"]) == (12, 2024)
 
+    def test_trend_carries_income_and_net(self, service: FinanceService, add_salary):
+        service.update_settings({"taxRate": 0})
+        add_salary(100000)
+        service.create_expense(name="rent", amount=30000, half=1, month=6, year=2025)
+        m = service.analytics_trend(6, 2025, months=1)["months"][0]
+        assert m["income"] == pytest.approx(100000)   # к выплате обе половины
+        assert m["total"] == 30000
+        assert m["net"] == pytest.approx(70000)
+
 
 class TestExport:
     def test_csv_has_all_sections_and_rows(self, service: FinanceService, add_salary):

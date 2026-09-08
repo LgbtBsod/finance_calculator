@@ -67,23 +67,34 @@ class BalanceView(View):
             )
 
         cats = summary["categories"][:5]
-        cat_rows = [
-            ft.Row(
+
+        def _cat_row(c: dict) -> ft.Control:
+            limit = c.get("monthlyLimit")
+            over = limit is not None and c["amount"] > limit
+            near = limit is not None and not over and c["amount"] >= limit * 0.85
+            right = format_currency(c["amount"])
+            if limit is not None:
+                right += f" / {format_currency(limit)}"
+            return ft.Row(
                 [
                     ft.Row(
                         [
                             ft.Container(width=8, height=8, bgcolor=c["color"], border_radius=999),
                             ft.Text(c["name"], size=12, color=COLORS["text"]),
+                            *([ft.Text("превышен лимит", size=10, color=COLORS["danger"])]
+                              if over else
+                              [ft.Text("почти лимит", size=10, color=COLORS["warning"])]
+                              if near else []),
                         ],
                         spacing=6,
                     ),
-                    ft.Text(format_currency(c["amount"]), size=12, weight=ft.FontWeight.W_500,
-                            color=COLORS["text"]),
+                    ft.Text(right, size=12, weight=ft.FontWeight.W_500,
+                            color=COLORS["danger"] if over else COLORS["text"]),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             )
-            for c in cats
-        ] or [hint("Нет расходов за этот месяц")]
+
+        cat_rows = [_cat_row(c) for c in cats] or [hint("Нет расходов за этот месяц")]
         blocks.append(
             card(
                 ft.Text("Расходы за месяц", size=12, color=COLORS["text_secondary"]),

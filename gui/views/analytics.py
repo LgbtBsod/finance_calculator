@@ -138,30 +138,45 @@ class AnalyticsView(View):
         self.reload()
 
     def _trend_chart(self, months: list[dict]) -> ft.Container:
-        peak = max((m["total"] for m in months), default=0) or 1
-        bars = []
+        peak = max((max(m["total"], m.get("income", 0)) for m in months), default=0) or 1
+        top = ft.BorderRadius(top_left=3, top_right=3, bottom_left=0, bottom_right=0)
+        cols = []
         for m in months:
-            h = max(4, round(m["total"] / peak * 140))
-            bars.append(
-                ft.Column(
-                    [
-                        ft.Text(format_currency(m["total"]), size=10,
-                                color=COLORS["text_secondary"]),
-                        ft.Container(
-                            width=34, height=h, bgcolor=COLORS["accent"],
-                            border_radius=ft.BorderRadius(top_left=4, top_right=4,
-                                                         bottom_left=0, bottom_right=0),
-                        ),
-                        ft.Text(MONTH_NAMES_RU[m["month"]][:3], size=10,
-                                color=COLORS["text_secondary"]),
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=4,
-                )
-            )
+            inc, exp, net = m.get("income", 0.0), m["total"], m.get("net", 0.0)
+            cols.append(ft.Column(
+                [
+                    ft.Text(_signed(net) if net else "0 ₽", size=9,
+                            color=COLORS["success"] if net >= 0 else COLORS["danger"]),
+                    ft.Row(
+                        [
+                            ft.Container(width=15, height=max(3, round(inc / peak * 130)),
+                                         bgcolor=COLORS["success_el"], border_radius=top,
+                                         tooltip=f"доход {format_currency(inc)}"),
+                            ft.Container(width=15, height=max(3, round(exp / peak * 130)),
+                                         bgcolor=COLORS["danger_el"], border_radius=top,
+                                         tooltip=f"расходы {format_currency(exp)}"),
+                        ],
+                        spacing=2, vertical_alignment=ft.CrossAxisAlignment.END, tight=True,
+                    ),
+                    ft.Text(MONTH_NAMES_RU[m["month"]][:3], size=10,
+                            color=COLORS["text_secondary"]),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
+            ))
+        legend = ft.Row(
+            [
+                ft.Row([ft.Container(width=8, height=8, bgcolor=COLORS["success_el"],
+                                     border_radius=2), hint("доход")], spacing=4),
+                ft.Row([ft.Container(width=8, height=8, bgcolor=COLORS["danger_el"],
+                                     border_radius=2), hint("расходы")], spacing=4),
+                hint("· над столбцами — чистыми"),
+            ],
+            spacing=14,
+        )
         return card(
-            ft.Row(bars, alignment=ft.MainAxisAlignment.SPACE_AROUND,
-                   vertical_alignment=ft.CrossAxisAlignment.END)
+            ft.Row(cols, alignment=ft.MainAxisAlignment.SPACE_AROUND,
+                   vertical_alignment=ft.CrossAxisAlignment.END),
+            legend,
         )
 
     def _categories(self, categories: list[dict], total: float) -> ft.Container:
