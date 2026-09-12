@@ -17,10 +17,19 @@
   --skip-update   не проверять обновления
   --yes           не спрашивать подтверждений (git pull автоматически)
   прочие          пробрасываются в main.py (например --port 9000, --no-update)
+
+Штамп "зависимости свежие" (logs/.dep_sync) — это файл со временем, он не
+знает, какой venv был активен при синхронизации. Если run.bat создал venv/ с
+нуля (папка пропала / новая машина), а старый штамп ещё не протух, "свежесть"
+проверяется ещё и реальной импортируемостью (`_deps_importable`) — иначе
+запуск молча проваливался бы в ModuleNotFoundError: No module named 'flet'.
+Если после явной синхронизации обязательные модули всё равно не видны —
+это ошибка (сеть/права), а не тихий запуск в гарантированный крэш.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import runpy
 import subprocess
@@ -34,6 +43,10 @@ _PIP_TIMEOUT = 300          # с — pip не должен вешать запу
 _DEP_STAMP = ROOT / "logs" / ".dep_sync"
 _DEP_TTL = 24 * 3600        # с — синхронизируемся не чаще раза в сутки
 
+# Без этих пакетов main.py не стартует — та же связка, что build.py
+# проверяет после установки (без PyInstaller — это только для сборки).
+_REQUIRED_MODULES = ("flet", "flet_web", "certifi", "packaging", "work_calendar")
+
 
 def _run(cmd: list[str], *, check: bool = False, timeout: float | None = None) -> int:
     print(f"  $ {' '.join(cmd)}")
@@ -44,9 +57,29 @@ def _run(cmd: list[str], *, check: bool = False, timeout: float | None = None) -
         return 1
 
 
+def _missing_modules() -> list[str]:
+    """Какие из обязательных модулей НЕ видны текущему интерпретатору."""
+    return [m for m in _REQUIRED_MODULES if importlib.util.find_spec(m) is None]
+
+
+def _deps_importable() -> bool:
+    return not _missing_modules()
+
+
 def _deps_fresh() -> bool:
     """Зависимости синхронизировались недавно И requirements.txt с тех пор
-    не менялся — можно пропустить pip на старте."""
+    не менялся И реально доступны текущему интерпретатору — можно
+    пропустить pip на старте.
+
+    Штамп logs/.dep_sync — это просто файл со временем; он ничего не знает,
+    какой venv был активен, когда синхронизация прошла. Если run.bat только
+    что создал ПУСТОЙ venv (папка venv/ пропала или это новая машина), а
+    старый штамп ещё "свежий" по времени — без явной проверки импорта
+    зависимости молча пропустились бы, и main.py упал бы с
+    ModuleNotFoundError: No module named 'flet'.
+    """
+    if not _deps_importable():
+        return False
     try:
         stamp = _DEP_STAMP.stat().st_mtime
     except OSError:
@@ -178,6 +211,12 @@ def main() -> None:
     else:
         upgrade_pip()
         sync_deps()
+        missing = _missing_modules()
+        if missing:
+            print(f"[ERROR] Не установились обязательные зависимости: {', '.join(missing)}")
+            print("        Проверьте сеть/права и установите вручную:")
+            print(f"        {sys.executable} -m pip install -r requirements.txt")
+            sys.exit(1)
 
     if not skip_update:
         check_updates(assume_yes)
