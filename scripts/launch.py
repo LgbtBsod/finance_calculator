@@ -214,7 +214,13 @@ def main() -> None:
         missing = _missing_modules()
         if missing:
             print(f"[ERROR] Не установились обязательные зависимости: {', '.join(missing)}")
-            print("        Проверьте сеть/права и установите вручную:")
+            print(f"        Python в этом venv: {sys.version.split()[0]}")
+            print("        Если в логе выше были ошибки сборки (Rust/cargo/link.exe/")
+            print("        maturin) — venv создан на слишком новой версии Python, для")
+            print("        которой ещё нет готовых пакетов у зависимостей flet. Решение:")
+            print("        удалить папку venv и запустить run.bat/run.sh заново — он")
+            print("        сам подберёт версию 3.14/3.13/3.12 через py-launcher.")
+            print("        Иначе — проверьте сеть/права и установите вручную:")
             print(f"        {sys.executable} -m pip install -r requirements.txt")
             sys.exit(1)
 
